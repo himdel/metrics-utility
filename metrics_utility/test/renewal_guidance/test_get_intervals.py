@@ -29,16 +29,15 @@ class TestGetIntervals:
         )
 
         extra_params = {
-            'opt_ephemeral': '7 days',
+            'opt_ephemeral': '7days',
             'price_per_node': 0.1,
-            'report_period_range': '2025-01-01,2025-06-03',
+            'report_period': '2025-01-01,2025-06-03',
             'since_date': '2025-01-01',
             'until_date': '2025-06-03',
         }
 
         return ReportRenewalGuidance(
             dataframe=[mock_df],
-            report_period='2025-01-01,2025-06-03',
             extra_params=extra_params,
         )
 
@@ -93,16 +92,15 @@ class TestGetIntervals:
         )
 
         extra_params = {
-            'opt_ephemeral': '7 days',
+            'opt_ephemeral': '7days',
             'price_per_node': 0.1,
-            'report_period_range': '2025-04-28,2025-05-12',
+            'report_period': '2025-04-28,2025-05-12',
             'since_date': '2025-04-28',
             'until_date': '2025-05-12',
         }
 
         instance = ReportRenewalGuidance(
             dataframe=[realistic_df],
-            report_period='2025-04-28,2025-05-12',
             extra_params=extra_params,
         )
 
@@ -230,16 +228,15 @@ class TestGetIntervals:
         )
 
         extra_params = {
-            'opt_ephemeral': '7 days',
+            'opt_ephemeral': '7days',
             'price_per_node': 0.1,
-            'report_period_range': '2025-04-10,2025-05-12',
+            'report_period': '2025-04-10,2025-05-12',
             'since_date': '2025-04-10',
             'until_date': '2025-05-12',
         }
 
         production_instance = ReportRenewalGuidance(
             dataframe=[production_df],
-            report_period='2025-04-10,2025-05-12',
             extra_params=extra_params,
         )
 

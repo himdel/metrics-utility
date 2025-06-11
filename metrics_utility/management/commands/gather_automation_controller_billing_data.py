@@ -8,12 +8,8 @@ from django.utils import timezone
 
 from metrics_utility.automation_controller_billing.collector import Collector
 from metrics_utility.exceptions import (
-    BadRequiredEnvVar,
     BadShipTarget,
-    FailedToUploadPayload,
-    MissingRequiredEnvVar,
     NoAnalyticsCollected,
-    UnparsableParameter,
 )
 from metrics_utility.management.validation import (
     handle_crc_ship_target,
@@ -31,6 +27,8 @@ class Command(BaseCommand):
     Gather Automation Controller billing data
     """
 
+    help = 'Gather Automation Controller billing data'
+
     def __init__(self):
         super().__init__()
         self.help = {
@@ -39,10 +37,8 @@ class Command(BaseCommand):
                 'or a number of months (--since=2m).'
             ),
             'until': (
-                'End date for collection including (e.g. --until=2023-12-21), a number of days ago (--until=5d), or a number of months (--until=2m).'
-            ),
-            'time_frame_extra_params': (
-                'Missing required parameter --until, or --since. Metrics utility requires a value for at least one of the following: since, until.'
+                'End date for collection including (e.g. --until=2023-12-21), a number of days ago (--until=5d), '
+                'or a number of months (--until=2m).'
             ),
         }
 
@@ -73,17 +69,6 @@ class Command(BaseCommand):
         self.logger.propagate = False
 
     def handle(self, *args, **options):
-        try:
-            self._handle(self, *args, **options)
-            exit(0)
-        except (BadShipTarget, MissingRequiredEnvVar, BadRequiredEnvVar, FailedToUploadPayload, UnparsableParameter) as e:
-            self.logger.error(e.name)
-            exit(1)
-        except Exception as e:
-            self.logger.exception(e)
-            exit(1)
-
-    def _handle(self, *args, **options):
         self.init_logging()
 
         handle_validate_date_param(options.get('since', None), self.help.get('since'), 'gather')

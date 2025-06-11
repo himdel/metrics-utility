@@ -15,13 +15,9 @@ from metrics_utility.automation_controller_billing.helpers import (
 from metrics_utility.automation_controller_billing.report.factory import Factory as ReportFactory
 from metrics_utility.automation_controller_billing.report_saver.factory import Factory as ReportSaverFactory
 from metrics_utility.exceptions import (
-    BadParameter,
     BadRequiredEnvVar,
     BadShipTarget,
-    DateFormatError,
     MissingRequiredEnvVar,
-    MissingRequiredParameter,
-    UnparsableParameter,
 )
 from metrics_utility.management.validation import (
     handle_directory_ship_target,
@@ -34,6 +30,13 @@ from metrics_utility.management.validation import (
 from metrics_utility.metric_utils import get_optional_collectors
 
 
+def get_report_path(ship_path, date):
+    year = date.strftime('%Y')
+    month = date.strftime('%m')
+
+    return f'{ship_path}/reports/{year}/{month}'
+
+
 class Command(BaseCommand):
     """
     Gather Automation Controller billing data
@@ -43,18 +46,27 @@ class Command(BaseCommand):
 
     def __init__(self):
         super().__init__()
-
         self.help = {
-            'since': """Start date for collection including (e.g. --since=2023-12-20), a number of minutes ago (--until=2m),
-              a number of days ago (--since=5d), or a number of months (--since=2m).""",
-            'until': 'End date for collection including (e.g. --until=2023-12-21), a number of minutes (--until=2m), '
-            'a number of days ago (--until=5d), or a number of months (--until=2m).',
-            'time_frame_extra_params': 'Missing required parameter --month, --until, or --since. Metrics utility requires a value for at least '
-            'one of the following: month, since, until.',
-            'month': """Month the report will be generated for, with format YYYY-MM. If this params is not provided, previous month report
-             will be generated if it doesn't exists already.""",
-            'ephemeral': """Duration in months or days to determine if host is ephemeral. Months are taken as 30days duration.
-            Example: --ephemeral=3months, or --ephemeral=3days""",
+            'since': (
+                'Start date for collection including (e.g. --since=2023-12-20), a number of minutes ago (--until=2m), '
+                'a number of days ago (--since=5d), or a number of months (--since=2m).'
+            ),
+            'until': (
+                'End date for collection including (e.g. --until=2023-12-21), a number of minutes (--until=2m), '
+                'a number of days ago (--until=5d), or a number of months (--until=2m).'
+            ),
+            'time_frame_extra_params': (
+                'Missing required parameter --month, --until, or --since. Metrics utility requires a value for at least '
+                'one of the following: month, since, until.'
+            ),
+            'month': (
+                'Month the report will be generated for, with format YYYY-MM. If this params is not provided, '
+                "previous month report will be generated if it doesn't exists already."
+            ),
+            'ephemeral': (
+                'Duration in months or days to determine if host is ephemeral. Months are taken as 30days duration. '
+                'Example: --ephemeral=3months, or --ephemeral=3days'
+            ),
         }
 
     def add_arguments(self, parser):
@@ -87,7 +99,7 @@ class Command(BaseCommand):
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(logging.Formatter('%(message)s'))
         self.logger.addHandler(handler)
-        self.logger.propagate = True
+        self.logger.propagate = False
 
     def _parse_param(
         self,
@@ -99,7 +111,7 @@ class Command(BaseCommand):
             return None
         return parse_date_param(param)
 
-    def _handle(self, *args, **options):
+    def handle(self, *args, **options):
         self.init_logging()
         og_month, month, next_month = handle_month(options.get('month') or None)
 
@@ -125,15 +137,15 @@ class Command(BaseCommand):
             extra_params['since_date'] = opt_since.date()
             extra_params['until_date'] = opt_until.date() if opt_until else now.date()
 
-            extra_params['report_period_range'] = f'{extra_params["since_date"]}, {extra_params["until_date"]}'
-
+            extra_params['report_period'] = f'{extra_params["since_date"]}, {extra_params["until_date"]}'
             extra_params['report_spreadsheet_destination_path'] = os.path.join(
-                extractor.get_report_path(extra_params['until_date']),
-                f'{extra_params["report_type"]}-{opt_since.date()}--{extra_params["until_date"]}.xlsx',
+                get_report_path(extra_params['ship_path'], extra_params['until_date']),
+                f'{extra_params["report_type"]}-{extra_params["since_date"]}--{extra_params["until_date"]}.xlsx',
             )
         else:
+            extra_params['report_period'] = opt_month
             extra_params['report_spreadsheet_destination_path'] = os.path.join(
-                extractor.get_report_path(month),
+                get_report_path(extra_params['ship_path'], month),
                 f'{extra_params["report_type"]}-{opt_month}.xlsx',
             )
 
@@ -157,35 +169,12 @@ class Command(BaseCommand):
                 self.logger.info(f'No billing data for month {opt_month}')
             return
 
-        report_engine = ReportFactory(
-            report_period=opt_month,
-            report_dataframe=report_dataframe,
-            ship_target=ship_target,
-            extra_params=extra_params,
-        ).create()
+        report_engine = ReportFactory(report_dataframe=report_dataframe, extra_params=extra_params).create()
         report_spreadsheet = report_engine.build_spreadsheet()
 
         # Save the report to the configured destination
         report_saver_engine.save(report_spreadsheet)
         self.logger.info(f'Report generated into {ship_target}: {report_saver_engine.report_spreadsheet_destination_path}')
-
-    def handle(self, *args, **options):
-        try:
-            self._handle(*args, **options)
-        except (
-            BadShipTarget,
-            MissingRequiredEnvVar,
-            BadRequiredEnvVar,
-            MissingRequiredParameter,
-            UnparsableParameter,
-            BadParameter,
-            DateFormatError,
-        ) as e:
-            self.logger.error(str(e))
-            exit(1)
-        except Exception as e:
-            self.logger.exception(e)
-            exit(1)
 
     def _handle_ship_target(self, ship_target):
         if ship_target in ['controller_db', 'directory']:
