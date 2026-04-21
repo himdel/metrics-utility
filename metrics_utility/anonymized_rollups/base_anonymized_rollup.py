@@ -47,10 +47,6 @@ class BaseAnonymizedRollup:
     def prepare(self, dataframe):
         return dataframe
 
-    # Base receive the full daily rollup and computes some final statistics for the day
-    def base(self, dataframe):
-        return pd.DataFrame()
-
     def save_rollup(self, rollup_data: dict, base_path: str, since: datetime, until: datetime, packed: bool = True) -> None:
         # rollup data is dictionary
         # the dictionary can have those values:

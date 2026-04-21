@@ -114,15 +114,3 @@ class TaskExecutionsAnonymizedRollup(BaseAnonymizedRollup):
         We do not need to accumulate data here, we are collecting only once per daily report
         """
         return data_new
-
-    def base(self, data):
-        """
-        Return the final JSON representation.
-
-        Accepts either the list produced by prepare() or a raw DataFrame.
-        """
-        if data is None:
-            return {'json': []}
-        if isinstance(data, pd.DataFrame):
-            data = self.prepare(data)
-        return {'json': data}

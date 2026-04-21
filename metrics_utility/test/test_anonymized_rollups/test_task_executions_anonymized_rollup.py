@@ -192,38 +192,3 @@ def test_merge_with_none_old_returns_new():
     rollup = TaskExecutionsAnonymizedRollup()
     new = [{'collector_type': 'unified_jobs', 'executions_total': 3}]
     assert rollup.merge(None, new) == new
-
-
-# ---------------------------------------------------------------------------
-# base()
-# ---------------------------------------------------------------------------
-
-
-def test_base_none_returns_empty_json():
-    rollup = TaskExecutionsAnonymizedRollup()
-    result = rollup.base(None)
-    assert result == {'json': []}
-
-
-def test_base_with_prepared_list():
-    rollup = TaskExecutionsAnonymizedRollup()
-    data = [{'collector_type': 'unified_jobs', 'executions_total': 5}]
-    result = rollup.base(data)
-    assert result == {'json': data}
-
-
-def test_base_with_dataframe_calls_prepare():
-    rollup = TaskExecutionsAnonymizedRollup()
-    rows = [
-        {
-            'collector_type': 'unified_jobs',
-            'started_at': '2025-06-13T00:00:00Z',
-            'completed_at': '2025-06-13T00:01:00Z',
-        },
-    ]
-    df = pd.DataFrame(rows)
-    result = rollup.base(df)
-    assert isinstance(result, dict)
-    assert 'json' in result
-    assert isinstance(result['json'], list)
-    assert result['json'][0]['collector_type'] == 'unified_jobs'
