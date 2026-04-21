@@ -1,5 +1,3 @@
-import pandas as pd
-
 from metrics_utility.anonymized_rollups.base_anonymized_rollup import BaseAnonymizedRollup
 from metrics_utility.anonymized_rollups.helpers import sanitize_json
 
@@ -31,14 +29,3 @@ class FeatureFlagsAnonymizedRollup(BaseAnonymizedRollup):
         For snapshot collectors, always use the latest data (no merging needed).
         """
         return data_new
-
-    def base(self, data):
-        """
-        Returns the data as-is (data is already a list produced by prepare).
-        Safeguard: if data is a dataframe, call prepare on it first.
-        """
-        if data is None:
-            return {'json': []}
-        if isinstance(data, pd.DataFrame):
-            data = self.prepare(data)
-        return {'json': data}

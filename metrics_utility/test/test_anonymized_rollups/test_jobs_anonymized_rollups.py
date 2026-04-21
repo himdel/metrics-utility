@@ -169,9 +169,7 @@ def test_jobs_anonymized_rollups_base_aggregation():
 
     df = pd.DataFrame(jobs)
     jobs_anonymized_rollup = JobsAnonymizedRollup()
-    prepared_data = jobs_anonymized_rollup.prepare(df)
-    result = jobs_anonymized_rollup.base(prepared_data)
-    result = result['json']
+    result = jobs_anonymized_rollup.prepare(df)
 
     import pprint
 
@@ -471,9 +469,9 @@ def test_jobs_anonymized_rollups_base_aggregation():
     assert ctrl_summary['job_waiting_time_minimum_seconds'] == pytest.approx(0.0, rel=1e-6)  # job 1
     # All unique ansible versions across all valid jobs
     assert ctrl_summary['ansible_versions'] == ['2.10.0', '2.11.0', '2.12.0', '2.14.0', '2.9.0']
-    # controller_version is NOT set at the base() stage - it is injected in flatten_json_report
+    # controller_version is NOT set at the prepare() stage - it is injected in flatten_json_report
     assert 'controller_version' not in ctrl_summary, (
-        'controller_version should not be present in base() output; it is injected in flatten_json_report'
+        'controller_version should not be present in prepare() output; it is injected in flatten_json_report'
     )
 
 
@@ -481,9 +479,7 @@ def test_jobs_anonymized_rollups_ansible_version():
     """Test that organizations_total is correctly aggregated at top level."""
     df = pd.DataFrame(jobs)
     jobs_anonymized_rollup = JobsAnonymizedRollup()
-    prepared_data = jobs_anonymized_rollup.prepare(df)
-    result = jobs_anonymized_rollup.base(prepared_data)
-    result = result['json']
+    result = jobs_anonymized_rollup.prepare(df)
 
     # Verify top-level fields are present
     assert 'organizations_total' in result
@@ -554,9 +550,7 @@ def test_jobs_anonymized_rollups_ansible_version_multiple_per_type():
 
     df = pd.DataFrame(test_jobs)
     jobs_anonymized_rollup = JobsAnonymizedRollup()
-    prepared_data = jobs_anonymized_rollup.prepare(df)
-    result = jobs_anonymized_rollup.base(prepared_data)
-    result = result['json']
+    result = jobs_anonymized_rollup.prepare(df)
 
     by_job_type = result['by_job_type']
     rec_job = next(r for r in by_job_type if r['job_type'] == 'job')
@@ -572,9 +566,7 @@ def test_jobs_anonymized_rollups_installed_collections():
     """Test that installed collections are correctly extracted and counted."""
     df = pd.DataFrame(jobs)
     jobs_anonymized_rollup = JobsAnonymizedRollup()
-    prepared_data = jobs_anonymized_rollup.prepare(df)
-    result = jobs_anonymized_rollup.base(prepared_data)
-    result = result['json']
+    result = jobs_anonymized_rollup.prepare(df)
 
     # Verify installed_collections field exists
     assert 'installed_collections' in result
@@ -785,7 +777,7 @@ def test_prepare_empty_dataframe():
     assert result['by_job_type'] == []
     assert result['by_launch_type'] == []
     assert result['by_ansible_version'] == []
-    assert result['by_controller_version'] == []
+    assert result['jobs_by_controller_version'] == []
     assert result['organizations'] == []
     assert result['forks_total'] == 0
     assert result['scm_types'] == []
@@ -821,39 +813,14 @@ def test_prepare_all_unfinished_jobs():
     assert result['by_job_type'] == []
     assert result['by_launch_type'] == []
     assert result['by_ansible_version'] == []
-    assert result['by_controller_version'] == []
-
-
-def test_base_with_none_input():
-    """base(None) must return the canonical None-placeholder structure."""
-    jobs_anonymized_rollup = JobsAnonymizedRollup()
-    result = jobs_anonymized_rollup.base(None)['json']
-
-    assert result['by_job_type'] == []
-    assert result['by_launch_type'] == []
-    assert result['by_ansible_version'] == []
     assert result['jobs_by_controller_version'] == []
-    assert result['organizations_total'] is None
-    assert result['forks_total'] is None
-    assert result['jobs_total'] is None
-    assert result['installed_collections'] == []
-    assert result['scm_types'] == []
 
 
-def test_base_with_empty_lists():
-    """base() must return all-zero structure when every list is empty."""
+def test_prepare_with_none_like_empty_df():
+    """prepare() with an empty DataFrame must return the canonical empty structure."""
     jobs_anonymized_rollup = JobsAnonymizedRollup()
-    empty_data = {
-        'by_job_type': [],
-        'by_launch_type': [],
-        'by_ansible_version': [],
-        'by_controller_version': [],
-        'organizations': [],
-        'forks_total': 0,
-        'scm_types': [],
-        'installed_collections': [],
-    }
-    result = jobs_anonymized_rollup.base(empty_data)['json']
+    df = pd.DataFrame(columns=list(jobs[0].keys()))
+    result = jobs_anonymized_rollup.prepare(df)
 
     assert result['by_job_type'] == []
     assert result['by_launch_type'] == []
@@ -885,8 +852,7 @@ def test_merge_two_batches():
     data1 = rollup.prepare(pd.DataFrame(jobs_batch1))
     data2 = rollup.prepare(pd.DataFrame(jobs_batch2))
 
-    merged = rollup.merge(data1, data2)
-    result = rollup.base(merged)['json']
+    result = rollup.merge(data1, data2)
 
     # All 4 jobs must be present
     assert result['jobs_total'] == 4
@@ -1340,8 +1306,7 @@ def test_merge_full_pipeline_two_batches_installed_collections():
     data1 = rollup.prepare(pd.DataFrame(batch1))
     data2 = rollup.prepare(pd.DataFrame(batch2))
 
-    merged = rollup.merge(data1, data2)
-    result = rollup.base(merged)['json']
+    result = rollup.merge(data1, data2)
 
     installed_collections = result['installed_collections']
     coll_dict = {(c['collection_name'], c['collection_version']): c for c in installed_collections}

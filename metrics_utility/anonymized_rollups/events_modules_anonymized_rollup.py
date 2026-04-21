@@ -221,6 +221,14 @@ class EventModulesAnonymizedRollup(BaseAnonymizedRollup):
             data_all.get('role_stats', []), data_new.get('role_stats', []), ['role', 'collection_name', 'collection_source']
         )
 
+        unique_modules = self._merge_unique_modules(data_all, data_new)
+        modules_per_playbook = self._merge_modules_per_playbook(data_all, data_new)
+        unique_hosts = self._merge_unique_hosts(data_all, data_new)
+
+        modules_used_per_playbook_total = {
+            playbook: len(module_list) if isinstance(module_list, list) else module_list for playbook, module_list in modules_per_playbook.items()
+        }
+
         return {
             'collected_events_total': data_all['collected_events_total'] + data_new['collected_events_total'],
             'warnings_total': data_all.get('warnings_total', 0) + data_new.get('warnings_total', 0),
@@ -228,9 +236,12 @@ class EventModulesAnonymizedRollup(BaseAnonymizedRollup):
             'module_stats': module_stats,
             'collection_stats': collection_stats,
             'role_stats': role_stats,
-            'unique_modules': self._merge_unique_modules(data_all, data_new),
-            'modules_per_playbook': self._merge_modules_per_playbook(data_all, data_new),
-            'unique_hosts': self._merge_unique_hosts(data_all, data_new),
+            'unique_modules': unique_modules,
+            'modules_used_to_automate_total': len(unique_modules),
+            'modules_per_playbook': modules_per_playbook,
+            'modules_used_per_playbook_total': modules_used_per_playbook_total,
+            'unique_hosts': unique_hosts,
+            'hosts_automated_total': len(unique_hosts),
         }
 
     def _count_initial_statistics(self, dataframe):
@@ -598,8 +609,11 @@ class EventModulesAnonymizedRollup(BaseAnonymizedRollup):
                     'collection_stats': [],
                     'role_stats': [],
                     'unique_modules': [],
+                    'modules_used_to_automate_total': 0,
                     'modules_per_playbook': {},
+                    'modules_used_per_playbook_total': {},
                     'unique_hosts': [],
+                    'hosts_automated_total': 0,
                 }
             )
 
@@ -612,6 +626,10 @@ class EventModulesAnonymizedRollup(BaseAnonymizedRollup):
         module_stats_json, collection_stats_json, role_stats_json = self._convert_stats_to_json(module_stats, collection_stats, role_stats)
         unique_modules, modules_per_playbook, unique_hosts = self._compute_unique_metadata(task_summary)
 
+        modules_used_per_playbook_total = {
+            playbook: len(module_list) if isinstance(module_list, list) else module_list for playbook, module_list in modules_per_playbook.items()
+        }
+
         result = {
             'collected_events_total': collected_events_total,
             'warnings_total': warnings_total,
@@ -620,87 +638,12 @@ class EventModulesAnonymizedRollup(BaseAnonymizedRollup):
             'collection_stats': collection_stats_json,
             'role_stats': role_stats_json,
             'unique_modules': unique_modules,
+            'modules_used_to_automate_total': len(unique_modules),
             'modules_per_playbook': modules_per_playbook,
+            'modules_used_per_playbook_total': modules_used_per_playbook_total,
             'unique_hosts': unique_hosts,
+            'hosts_automated_total': len(unique_hosts),
         }
 
         # Sanitize to convert NumPy types to native Python types for JSON serialization
         return sanitize_json(result)
-
-    def base(self, data):
-        """
-        *Failure/Success rate of modules
-        *Modules Used to Automate
-        *Total number of modules automated
-        *Total hosts automated
-
-        *Breakdown of total jobs executed by collection source (e.g., Red Hat, Partner A, Community).
-        * Total job duration for collection sources (averages can be computed from totals and counts).
-        * Number of hosts automated per job for each collection source (totals only).
-        * Number of jobs per collection source that have failed.
-        * Success/failure rate of jobs per collection source (number of jobs that have failed / number of jobs).
-        * Number of jobs executed that use a specific partner collection - TODO - not implemented yet, must be communicated
-
-        data is a dict with already-aggregated JSON structures (lists of dicts) from prepare() and merge()
-        """
-
-        # Handle None input (no data files)
-        if data is None:
-            return {
-                'json': {'collected_events_total': 0, 'warnings_total': 0, 'deprecations_total': 0},
-            }
-
-        # Extract data from the structure (already JSON)
-        collected_events_total = data.get('collected_events_total', 0)
-        warnings_total = data.get('warnings_total', 0)
-        deprecations_total = data.get('deprecations_total', 0)
-        module_stats = data.get('module_stats', [])
-        collection_stats = data.get('collection_stats', [])
-        role_stats = data.get('role_stats', [])
-        unique_modules = data.get('unique_modules', [])
-        modules_per_playbook = data.get('modules_per_playbook', {})
-        unique_hosts = data.get('unique_hosts', [])
-
-        # Handle empty data
-        if not module_stats and not collection_stats and not role_stats:
-            return {
-                'json': {
-                    'collected_events_total': collected_events_total,
-                    'warnings_total': warnings_total,
-                    'deprecations_total': deprecations_total,
-                },
-            }
-
-        # Drop host_ids from stats (we only need unique_hosts_total, not the raw host_ids list)
-        for stats_list in [module_stats, collection_stats, role_stats]:
-            for item in stats_list:
-                if 'host_ids' in item:
-                    del item['host_ids']
-
-        # Compute modules_used_to_automate_total from unique_modules list
-        modules_used_to_automate_total = len(unique_modules)
-
-        # Convert modules_per_playbook dict (lists) to counts for JSON
-        modules_used_per_playbook_total = {
-            playbook: len(module_list) if isinstance(module_list, list) else module_list for playbook, module_list in modules_per_playbook.items()
-        }
-
-        # Compute hosts_automated_total from unique_hosts list
-        hosts_automated_total = len(unique_hosts)
-
-        # Prepare JSON data (already in JSON format)
-        json_data = {
-            'modules_used_to_automate_total': modules_used_to_automate_total,
-            'modules_used_per_playbook_total': modules_used_per_playbook_total,
-            'module_stats': module_stats,
-            'collection_stats': collection_stats,
-            'role_stats': role_stats,
-            'hosts_automated_total': hosts_automated_total,
-            'collected_events_total': collected_events_total,
-            'warnings_total': warnings_total,
-            'deprecations_total': deprecations_total,
-        }
-
-        return {
-            'json': json_data,
-        }

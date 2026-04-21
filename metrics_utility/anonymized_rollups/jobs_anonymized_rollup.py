@@ -198,9 +198,11 @@ class JobsAnonymizedRollup(BaseAnonymizedRollup):
                     'by_job_type': [],
                     'by_launch_type': [],
                     'by_ansible_version': [],
-                    'by_controller_version': [],
+                    'jobs_by_controller_version': [],
                     'organizations': [],
+                    'organizations_total': 0,
                     'forks_total': 0,
+                    'jobs_total': 0,
                     'scm_types': [],
                     'installed_collections': [],
                 }
@@ -231,13 +233,17 @@ class JobsAnonymizedRollup(BaseAnonymizedRollup):
         # Process collections statistics
         collections_stats = self._process_collections_from_jobs(dataframe)
 
+        jobs_total = sum(item.get('jobs_total', 0) for item in by_job_type)
+
         result = {
             'by_job_type': by_job_type,
             'by_launch_type': by_launch_type,
             'by_ansible_version': by_ansible_version,
-            'by_controller_version': by_controller_version,
+            'jobs_by_controller_version': by_controller_version,
             'organizations': organizations,
+            'organizations_total': len(organizations),
             'forks_total': forks_total,
+            'jobs_total': jobs_total,
             'scm_types': scm_types,
             'installed_collections': collections_stats,
         }
@@ -434,11 +440,13 @@ class JobsAnonymizedRollup(BaseAnonymizedRollup):
         if data_all is None:
             return data_new
 
-        # Merge by_job_type, by_launch_type, by_ansible_version, by_controller_version
+        # Merge by_job_type, by_launch_type, by_ansible_version, jobs_by_controller_version
         by_job_type = self._merge_stats_json(data_all.get('by_job_type', []), data_new.get('by_job_type', []), 'job_type')
         by_launch_type = self._merge_stats_json(data_all.get('by_launch_type', []), data_new.get('by_launch_type', []), 'launch_type')
         by_ansible_version = self._merge_stats_json(data_all.get('by_ansible_version', []), data_new.get('by_ansible_version', []), 'ansible_version')
-        by_controller_version = self._merge_single_item_stats(data_all.get('by_controller_version', []), data_new.get('by_controller_version', []))
+        jobs_by_controller_version = self._merge_single_item_stats(
+            data_all.get('jobs_by_controller_version', []), data_new.get('jobs_by_controller_version', [])
+        )
 
         # Merge list fields
         organizations = self._merge_list_fields(data_all, data_new, 'organizations')
@@ -450,13 +458,18 @@ class JobsAnonymizedRollup(BaseAnonymizedRollup):
         # Merge collections
         installed_collections = self._merge_collections(data_all, data_new)
 
+        # Recompute derived totals
+        jobs_total = sum(item.get('jobs_total', 0) for item in by_job_type)
+
         return {
             'by_job_type': by_job_type,
             'by_launch_type': by_launch_type,
             'by_ansible_version': by_ansible_version,
-            'by_controller_version': by_controller_version,
+            'jobs_by_controller_version': jobs_by_controller_version,
             'organizations': organizations,
+            'organizations_total': len(organizations),
             'forks_total': forks_total,
+            'jobs_total': jobs_total,
             'scm_types': scm_types,
             'installed_collections': installed_collections,
         }
@@ -464,86 +477,6 @@ class JobsAnonymizedRollup(BaseAnonymizedRollup):
     def __init__(self):
         super().__init__('jobs')
         self.collector_names = ['unified_jobs']
-
-    def base(self, data):
-        """
-        Returns the already-aggregated JSON data from prepare() and merge().
-        Computes final totals from lists/sets for proper deduplication.
-
-        data is a dict with already-aggregated JSON structures from prepare() and merge()
-        """
-
-        # Handle None input (no data files)
-        if data is None:
-            return {
-                'json': {
-                    'by_job_type': [],
-                    'by_launch_type': [],
-                    'by_ansible_version': [],
-                    'jobs_by_controller_version': [],
-                    'organizations_total': None,
-                    'forks_total': None,
-                    'jobs_total': None,
-                    'installed_collections': [],
-                    'scm_types': [],
-                },
-            }
-
-        # Extract data from the structure (already JSON)
-        by_job_type = data.get('by_job_type', [])
-        by_launch_type = data.get('by_launch_type', [])
-        by_ansible_version = data.get('by_ansible_version', [])
-        by_controller_version = data.get('by_controller_version', [])
-        organizations = data.get('organizations', [])
-        forks_total = data.get('forks_total', 0)
-        scm_types = data.get('scm_types', [])
-        installed_collections = data.get('installed_collections', [])
-
-        # Handle empty data
-        if not by_job_type and not by_launch_type and not by_ansible_version:
-            return {
-                'json': {
-                    'by_job_type': [],
-                    'by_launch_type': [],
-                    'by_ansible_version': [],
-                    'jobs_by_controller_version': [],
-                    'organizations_total': 0,
-                    'forks_total': 0,
-                    'jobs_total': 0,
-                    'installed_collections': [],
-                    'scm_types': [],
-                },
-            }
-
-        # Drop list columns from stats (we only need the computed totals, not the raw lists)
-        for stats_list in [by_job_type, by_launch_type, by_ansible_version, by_controller_version]:
-            for item in stats_list:
-                # Drop list columns that were used for deduplication
-                for col in ['templates', 'inventories', 'job_types']:
-                    if col in item:
-                        del item[col]
-
-        # Compute final totals
-        organizations_total = len(organizations)
-        # Compute jobs_total by summing jobs_total from all job_type groups
-        jobs_total = sum(item.get('jobs_total', 0) for item in by_job_type)
-
-        # Prepare JSON data (already in JSON format)
-        json_data = {
-            'by_job_type': by_job_type,
-            'by_launch_type': by_launch_type,
-            'by_ansible_version': by_ansible_version,
-            'jobs_by_controller_version': by_controller_version,
-            'organizations_total': organizations_total,
-            'forks_total': forks_total,
-            'jobs_total': jobs_total,
-            'installed_collections': installed_collections,
-            'scm_types': scm_types,
-        }
-
-        return {
-            'json': json_data,
-        }
 
     def _parse_collections_data(self, installed_collections_data):
         """

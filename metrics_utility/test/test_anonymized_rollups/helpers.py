@@ -94,43 +94,26 @@ def compute_anonymized_rollup_from_raw_data(input_data, salt):
         shutil.rmtree(OUT_BATCHES_DIR, ignore_errors=True)
 
     jobs = load_anonymized_rollup_data(JobsAnonymizedRollup(), input_data['unified_jobs'])
-    jobs_result = JobsAnonymizedRollup().base(jobs)
-
     job_host_summary = load_anonymized_rollup_data(JobHostSummaryAnonymizedRollup(), input_data['job_host_summary'])
-    job_host_summary_result = JobHostSummaryAnonymizedRollup().base(job_host_summary)
-
     events_modules = load_anonymized_rollup_data(EventModulesAnonymizedRollup(), input_data['main_jobevent'])
-    events_modules_result = EventModulesAnonymizedRollup().base(events_modules)
-
     execution_environments = load_anonymized_rollup_data(ExecutionEnvironmentsAnonymizedRollup(), input_data['execution_environments'])
-    execution_environments_result = ExecutionEnvironmentsAnonymizedRollup().base(execution_environments)
-
     credentials = load_anonymized_rollup_data(CredentialsAnonymizedRollup(), input_data['credentials'])
-    credentials_result = CredentialsAnonymizedRollup().base(credentials)
-
     table_metadata = load_anonymized_rollup_data(TableMetadataAnonymizedRollup(), input_data.get('table_metadata', []))
-    table_metadata_result = TableMetadataAnonymizedRollup().base(table_metadata)
-
     controller_version = load_anonymized_rollup_data(ControllerVersionAnonymizedRollup(), input_data.get('controller_version', []))
-    controller_version_result = ControllerVersionAnonymizedRollup().base(controller_version)
-
     feature_flags = load_anonymized_rollup_data(FeatureFlagsAnonymizedRollup(), input_data.get('feature_flags', []))
-    feature_flags_result = FeatureFlagsAnonymizedRollup().base(feature_flags)
-
     task_executions = load_anonymized_rollup_data(TaskExecutionsAnonymizedRollup(), input_data.get('task_executions', []))
-    task_executions_result = TaskExecutionsAnonymizedRollup().base(task_executions)
 
     anonymized_rollup = anonymize_rollups(
-        events_modules_rollup=events_modules_result['json'],
-        execution_environments_rollup=execution_environments_result['json'],
-        jobs_rollup=jobs_result['json'],
-        job_host_summary_rollup=job_host_summary_result['json'],
-        credentials_rollup=credentials_result['json'],
-        table_metadata_rollup=table_metadata_result['json'],
-        controller_version_rollup=controller_version_result['json'],
-        feature_flags_rollup=feature_flags_result['json'],
+        events_modules_rollup=events_modules,
+        execution_environments_rollup=execution_environments,
+        jobs_rollup=jobs,
+        job_host_summary_rollup=job_host_summary,
+        credentials_rollup=credentials,
+        table_metadata_rollup=table_metadata,
+        controller_version_rollup=controller_version,
+        feature_flags_rollup=feature_flags,
         salt=salt,
-        task_executions_rollup=task_executions_result['json'],
+        task_executions_rollup=task_executions,
     )
     # Sanitize the result to replace NaN and infinity values with None (valid JSON)
     anonymized_rollup = sanitize_json(anonymized_rollup)

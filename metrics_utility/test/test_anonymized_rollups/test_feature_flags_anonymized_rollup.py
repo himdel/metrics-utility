@@ -47,28 +47,3 @@ def test_merge_returns_new_data():
 def test_merge_with_none_old_returns_new():
     rollup = FeatureFlagsAnonymizedRollup()
     assert rollup.merge(None, ['flag_x']) == ['flag_x']
-
-
-# ---------------------------------------------------------------------------
-# base()
-# ---------------------------------------------------------------------------
-
-
-def test_base_none_returns_empty_json():
-    rollup = FeatureFlagsAnonymizedRollup()
-    result = rollup.base(None)
-    assert result == {'json': []}
-
-
-def test_base_with_list():
-    rollup = FeatureFlagsAnonymizedRollup()
-    data = ['flag_a', 'flag_b']
-    result = rollup.base(data)
-    assert result == {'json': ['flag_a', 'flag_b']}
-
-
-def test_base_with_dataframe_calls_prepare():
-    rollup = FeatureFlagsAnonymizedRollup()
-    df = pd.DataFrame([{'name': 'flag_x'}])
-    result = rollup.base(df)
-    assert result == {'json': ['flag_x']}

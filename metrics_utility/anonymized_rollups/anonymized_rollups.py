@@ -431,6 +431,13 @@ def _as_list(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
 
 
+def _strip_working_fields(stats_list: List[Dict[str, Any]], fields: List[str]) -> None:
+    """Strip working fields from stat items that are only needed for merge, not for the final output."""
+    for item in stats_list:
+        for field in fields:
+            item.pop(field, None)
+
+
 def flatten_json_report(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Manually flattens the given nested report into:
@@ -448,15 +455,26 @@ def flatten_json_report(data: Dict[str, Any]) -> Dict[str, Any]:
 
     Note: modules_used_per_playbook is computed but not included in final output.
     """
-    events_modules = data.get('events_modules', {})
-    execution_environments = data.get('execution_environments', {})
-    jobs = data.get('jobs', {})
-    job_host_summary_root = data.get('job_host_summary', {})
-    credentials_root = data.get('credentials', {})
-    table_metadata_root = data.get('table_metadata', {})
-    controller_version_root = data.get('controller_version', [])
-    feature_flags_root = data.get('feature_flags', [])
-    task_executions_root = data.get('task_executions', [])
+    events_modules = data.get('events_modules') or {}
+    execution_environments = data.get('execution_environments') or {
+        'execution_environments_total': 0,
+        'execution_environments_default_total': 0,
+        'execution_environments_custom_total': 0,
+    }
+    jobs = data.get('jobs') or {}
+    job_host_summary_root = data.get('job_host_summary') or {
+        'by_job_type': [],
+        'by_launch_type': [],
+        'by_ansible_version': [],
+        'job_host_pairs_total': 0,
+        'host_ids': [],
+        'unique_hosts_total': 0,
+    }
+    credentials_root = data.get('credentials') or []
+    table_metadata_root = data.get('table_metadata') or {}
+    controller_version_root = data.get('controller_version') or []
+    feature_flags_root = data.get('feature_flags') or []
+    task_executions_root = data.get('task_executions') or []
 
     # Extract data structures
     credentials_list: List[str] = _as_list(credentials_root)
@@ -498,6 +516,16 @@ def flatten_json_report(data: Dict[str, Any]) -> Dict[str, Any]:
     collection_stats: List[Dict[str, Any]] = events_modules.get('collection_stats', []) or []
     role_stats: List[Dict[str, Any]] = events_modules.get('role_stats', []) or []
     jobs_by_installed_collections_versions = _extract_jobs_by_installed_collections_versions(jobs)
+
+    # Strip working fields that are only needed for merge, not for the final report
+    _strip_working_fields(module_stats, ['host_ids'])
+    _strip_working_fields(collection_stats, ['host_ids'])
+    _strip_working_fields(role_stats, ['host_ids'])
+    _strip_working_fields(job_host_summary_by_job_type, ['job_types', 'launch_types'])
+    _strip_working_fields(job_host_summary_by_launch_type, ['job_types', 'launch_types'])
+    _strip_working_fields(job_host_summary_by_ansible_version, ['job_types', 'launch_types'])
+    for stats_list_key in ['by_job_type', 'by_launch_type', 'by_ansible_version', 'jobs_by_controller_version']:
+        _strip_working_fields(jobs.get(stats_list_key, []) or [], ['templates', 'inventories', 'job_types'])
 
     # Merge job_host_summary into jobs groupings
     jobs_by_job_type_merged, jobs_by_launch_type_merged, jobs_by_ansible_version_merged = _merge_all_jobs_groupings(
