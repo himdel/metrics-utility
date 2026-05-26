@@ -43,7 +43,7 @@ Several learnings span many commits and PRs. These are the most instructive arcs
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-service | babf061 | 2026-04-28 | [AAP-73154] Fix: scheduler spams skip logs every 30s when feature flag is disabled (#199) |
+| metrics-service | 7cf5d0b | 2026-05-26 | bump metrics-utility dep to >=0.8.0 |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
