@@ -43,6 +43,7 @@ Several learnings span many commits and PRs. These are the most instructive arcs
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
+| metrics-utility | b36d893 | 2026-05-26 | Updated dashboard collection (#392) |
 | metrics-service | f9c6e49 | 2026-05-22 | Removing all the results files as they are being moved to the handbook (#227) |
 
 ## About the "Superseded / Semi-Obsolete" sections
