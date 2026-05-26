@@ -219,6 +219,24 @@
 - **What happened**: The `_periodic_database_sync` (30s loop) and `_sync_database_tasks` (startup sync) were picking up all pending tasks regardless of feature flag state, then checking the flag in `_execute_database_task` and logging a skip. For immediate tasks with `cron: None`, this created an infinite loop: pick up -> skip -> remove from tracking -> next cycle picks up again (DB row stays pending). The fix added a `_task_feature_flag_enabled(task)` helper that reads `task.task_data["_feature_flag"]` and checks via `get_feature_enabled_from_db()`. Both sync methods now call this before adding any task to the scheduler. The skip log in `_execute_database_task` was downgraded from INFO to DEBUG.
 - **Insight**: Feature flag checks should happen at the point of task discovery (the scheduler sync), not at the point of execution. This prevents disabled tasks from churning through the scheduler loop and producing noisy logs. When the flag is re-enabled, the next sync cycle automatically picks up the task -- no manual intervention needed.
 
+### Stuck task detection moved into scheduler's periodic sync
+- **Repo**: ansible/metrics-service
+- **Commits**: e7558f7 (#211)
+- **What happened**: Stuck task detection was added to `_periodic_database_sync` in `cron_scheduler.py`. On each 30-second tick, any task in "running" status whose `started_at` is older than `STUCK_TASK_TIMEOUT_SECONDS` (hardcoded to 3600) is atomically marked failed along with its `TaskExecution` record, using `transaction.atomic()`. Both `Task` and `TaskExecution` are updated with `status="failed"`, an error message, and `completed_at=now`. Tests cover: task beyond timeout (marked failed), task within timeout (left alone), task with no `started_at` (ignored), and associated execution record updates.
+- **Insight**: Piggy-backing stuck task detection on the existing scheduler tick (which already queries the DB every 30s) avoids adding a separate monitoring job. The detection is simple and robust: any running task older than the timeout is assumed to have a dead worker. The `transaction.atomic()` ensures Task and TaskExecution stay in sync.
+
+### Task timeout consolidated into single TASK_TIMEOUT Dynaconf setting
+- **Repo**: ansible/metrics-service
+- **Commits**: 0b00a81 (#218), c680e42 (#228)
+- **What happened**: The per-task `timeout_seconds` DB field was removed (migration 0004), the hardcoded `STUCK_TASK_TIMEOUT_SECONDS = 3600` constant was eliminated, and the `--timeout` CLI flags on `run` and `run_dispatcherd` were made no-ops (kept for compatibility). All timeout logic now uses `settings.TASK_TIMEOUT` (default 3600, overridable via `METRICS_SERVICE_TASK_TIMEOUT` env var). Both stuck task detection in `cron_scheduler.py` and dispatcherd's `default_timeout` in `dispatcherd_config.py` now read from this single setting. In #228, a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` constant was re-introduced for readability in the scheduler code.
+- **Insight**: Consolidating timeout into a single Dynaconf setting eliminates the three-way inconsistency that was possible (DB field vs hardcoded constant vs CLI arg). The `--timeout` flag stays for backward compatibility but does nothing, avoiding breaking existing deployment scripts. The env var override (`METRICS_SERVICE_TASK_TIMEOUT`) follows the existing Dynaconf naming convention for production overrides.
+
+### Exponential backoff for task retries (extended retry window)
+- **Repo**: ansible/metrics-service
+- **Commits**: 9fcd1d2 (#220)
+- **What happened**: Task retry was changed from a fixed 10-minute delay with 3 max attempts (~30 min window) to exponential backoff with 7 max attempts (~10.5 hour window). A `compute_retry_delay(base_delay, attempts)` function computes `min(base * 2^(attempts-1), 8h)`. The backoff is applied via `_schedule_retry()` which validates `retry_delay_seconds` from `task_data` (with fallback to `RETRY_BASE_DELAY_SECONDS = 600`). A `SEGMENT_MAX_ATTEMPTS = 7` constant is defined in `task_groups.py` and applied to both the `daily_anonymize_and_prepare` cron task and the dynamically created `send_anonymized_to_segment` one-time tasks. The retry logic was also extracted from inline code in `execute_claimed()` into a dedicated `_schedule_retry()` function with double `can_retry()` check (before and after `refresh_from_db()`). Several `logger.error(f"...")` calls were upgraded to `logger.exception(...)` for better traceback capture.
+- **Insight**: Fixed-interval retries are insufficient for tasks that depend on external services with multi-hour outages (like Segment API downtime). Exponential backoff with a cap (8h) spreads retries out enough to survive sustained outages while still retrying frequently early on. The 7-attempt / 10.5-hour window was chosen specifically for the Segment send use case. Extracting retry logic into `_schedule_retry()` also makes it testable independently of the full execution flow.
+
 ### Feature flag precedence expanded to five tiers with installer settings.yaml override
 - **Commits**: babf061 (#199)
 - **What happened**: The `get_feature_enabled_from_db()` lookup order was expanded from four to five tiers: (1) `Setting` row, (2) `settings.FEATURE_ENABLED[name]` dict, (3) **new**: `settings.FEATURE_<name>_ENABLED` top-level attribute (set by installer via `settings.yaml`), (4) AAPFlag, (5) default. The new tier 3 was added because the installer writes `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml`, which Dynaconf surfaces as a top-level settings attribute. Without this tier, the installer's intent was ignored because the key wasn't in the `FEATURE_ENABLED` dict.
@@ -281,6 +299,15 @@
 
 ### task_execution_wrapper and @task decorators on task functions
 - Removed in ccf9494 (#167). `execute_db_task` already handles Django setup, logging, and error handling, making these decorators redundant on all 9 task functions.
+
+### Per-task timeout_seconds DB field
+- The `timeout_seconds` field on the Task model was removed in 0b00a81 (#218). Timeout is now controlled exclusively by the `TASK_TIMEOUT` Dynaconf setting (overridable via `METRICS_SERVICE_TASK_TIMEOUT` env var). The `--timeout` CLI flag on `run` and `run_dispatcherd` commands is kept for compatibility but has no effect.
+
+### Hardcoded STUCK_TASK_TIMEOUT_SECONDS = 3600 constant
+- The hardcoded constant from e7558f7 (#211) was replaced in 0b00a81 (#218) by `django_settings.TASK_TIMEOUT`. In c680e42 (#228), a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` alias was added for readability.
+
+### Fixed 10-minute retry delay with 3 max attempts
+- Replaced in 9fcd1d2 (#220) by exponential backoff (`compute_retry_delay()`) with `SEGMENT_MAX_ATTEMPTS = 7`, extending the retry window from ~30 minutes to ~10.5 hours for Segment tasks.
 
 ### send_to_segment_daily as a fixed cron task
 - The daily cron entry (`30 3 * * *`) was removed in 8d4ae7e (#183). Segment sending is now triggered as a one-time task with jittered timing, created inside the anonymization transaction. This prevents thundering herd across installations.

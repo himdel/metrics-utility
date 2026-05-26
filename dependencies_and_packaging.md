@@ -124,6 +124,12 @@
 - **What happened**: The `[project.optional-dependencies].dev` section was removed from `pyproject.toml` entirely. Its contents were merged into `[dependency-groups].dev` (PEP-735). The rationale: uv ignores optional-dependencies by default but installs dependency-groups, and nothing pip-installs `metrics-service[dev]`. Having two independent sets of dev deps was pointless duplication. `psutil` was added to dev deps (for performance tests in #97).
 - **Insight**: PEP-735 dependency-groups are the modern approach for tool-specific extras like dev dependencies. Unlike `[project.optional-dependencies]`, they're tool-aware (uv, pip-tools) and don't affect the package's public API. The deduplication eliminated the version drift risk documented in the earlier learning about dev dependency duplication.
 
+### cryptography bumped from 45.0.6 to 48.0.0 for CVE-2026-39892
+- **Repo**: ansible/metrics-service
+- **Commits**: 45ab55d (#216)
+- **What happened**: The `cryptography` transitive dependency was bumped from 45.0.6 to 48.0.0 via `uv lock --upgrade-package cryptography`. CVE-2026-39892 affects cryptography >=45.0.0 and <46.0.7 (buffer overflow when non-contiguous Python buffers are passed to cryptography APIs like `Hash.update()`). Since `cryptography` is a transitive dependency pulled in by `django-ansible-base`, no changes to `pyproject.toml` were needed -- only `uv.lock` was updated (85 lines changed).
+- **Insight**: For transitive dependencies, `uv lock --upgrade-package <pkg>` is the minimal fix: it bumps only the target package in the lockfile without touching `pyproject.toml` or other dependencies. This is preferable to a full `uv lock --upgrade` which could introduce unrelated breaking changes.
+
 ### metrics-utility version bumped frequently during active development
 - **Commits**: 1580ff2 (#109), 05dc0c9 (#112), 31edf97 (#114), c946e15 (#122)
 - **What happened**: metrics-utility was bumped through multiple versions in rapid succession (0.7.20260218, 0.7.20260223, 0.7.20260224, 0.7.20260301), each time to pick up new collector/rollup classes being added to the library in parallel.
@@ -196,6 +202,9 @@
 
 ### metrics-utility bumped to 0.7.20260313
 - Bumped in 26614c4 (#113) for anonymization fixes (StorageSegment `segment_meta` parameter). See the consolidated version bumps entry in the main section.
+
+### metrics-utility version bumped from >=0.7.20260401 to >=0.8.0
+- Bumped in 7cf5d0b (no PR) to pick up metrics-utility 0.8.20260526. This is a major version bump reflecting the library's API changes (salt removal from `anonymize_rollups()`, new collector types). The `>=` minimum pin allows automatic resolution to newer 0.8.x versions.
 
 ### Package data for YAML files added to pyproject.toml
 - **Commits**: 520fd11 (#155)

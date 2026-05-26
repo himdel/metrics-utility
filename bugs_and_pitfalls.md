@@ -159,6 +159,12 @@
 - **What happened**: Workers reduced from 4 to 1 as band-aid for race conditions (#148), then restored to 4 with proper atomic claims, advisory locks, and retry delays (#167).
 - **Insight**: See `task_system.md` "Workers restored to 4 with atomic task claiming and advisory locks" for the full arc. Reducing concurrency is a valid emergency measure but should always be treated as temporary.
 
+### DispatcherdReconnectFilter added then reverted (direct commit without PR)
+- **Repo**: ansible/metrics-service
+- **Commits**: 8bd2a5c, 48397c8 (#208)
+- **What happened**: A `DispatcherdReconnectFilter` logging filter was added directly to the `devel` branch (without a PR) to suppress transient asyncio ERROR logs from dispatcherd's pg_notify reconnection attempts. The filter checked `record.name == "asyncio"` and matched on `"CallbackHolder.done_callback"` in the message. It was added to the console handler in `metrics_service/settings.py`. The next day, it was reverted via PR #208 because it was committed "by Claude without going through a PR." The revert PR explicitly notes that if the fix is still needed, it should be re-proposed via a proper PR with review.
+- **Insight**: This is a process pitfall, not a technical one. AI-assisted coding tools (Claude, Cursor) can commit directly to branches without human review. The fix itself was technically sound (targeted filter, only suppressed asyncio errors containing a dispatcherd-specific callback name), but bypassing the PR process means no peer review of the approach. Notably, commit 932467a (#206, OCP test results) also touched the same `DispatcherdReconnectFilter` code in the brief window it existed, simplifying the if/return to a single `return not (...)` expression.
+
 ### Stale task.save() after submit_task overwrote atomic attempts increment
 - **Commits**: 4892777 (#187)
 - **What happened**: `submit_task_to_dispatcher()` called `task.save()` after `submit_task()`, overwriting the worker's atomic `F("attempts") + 1` increment with stale in-memory `attempts=0`. Tasks appeared stuck at 0/3 attempts despite failing.

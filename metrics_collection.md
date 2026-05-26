@@ -73,6 +73,18 @@
 - **What happened**: The `send_to_segment` function was passing `use_bulk=data_size > 24 * 1024` to `StorageSegment()` to enable bulk mode for large payloads (>24KB). This was removed because the target Segment instance does not support bulk mode. The corresponding test (`test_send_to_segment_bulk_mode`) was also deleted.
 - **Insight**: Feature flags and conditional behavior for external service capabilities should be validated against the actual target service early. The bulk mode was added speculatively but never worked in practice.
 
+### Anonymization salt parameter removed -- dead code
+- **Repo**: ansible/metrics-service
+- **Commits**: 5e6c8f6 (#215)
+- **What happened**: The `salt` parameter was removed from `daily_anonymize_and_prepare()`. Previously, the function accepted an optional `salt` kwarg (auto-generated via `generate_salt()` if not provided) and passed it to `anonymize_rollups()`. The salt was also removed from the `TASK_METADATA` examples and the test fixture `mock_anonymize_rollups`. The corresponding `generate_salt()` import remained (used elsewhere for `user_id`). The docstring and module-level comment about "salt-based hashing" were updated. Also, `logger.error(f"...")` was changed to `logger.exception(...)` for better traceback capture.
+- **Insight**: The salt was removed from the metrics-utility library's `anonymize_rollups()` API first (PR #399 in metrics-utility), and this service-side change followed to clean up the now-dead parameter. When a library removes a parameter, all callers must be updated simultaneously to avoid runtime errors.
+
+### Segment send jitter changed from deterministic (service_id-seeded) to truly random
+- **Repo**: ansible/metrics-service
+- **Commits**: f7e2265 (#201)
+- **What happened**: The `daily_anonymize_and_prepare` task previously computed the jitter offset for `send_anonymized_to_segment` scheduling using `random.Random(seed)` where the seed was derived from `service_id()` (installation UUID). This meant the same installation always sent data at the same time each day, which leaked identifiable timing information. Changed to `random.randint(1, 240)` (truly random per invocation, offset shifted to 1-240 to prevent scheduling in the past). A `random_offset()` function was extracted for testability, with a test verifying the offset is independent of the installation UUID. The test now freezes `timezone.now()` to avoid flaky scheduled_time assertions.
+- **Insight**: Deterministic jitter (seeded by a stable identifier) is good for spreading server load but bad when the timing itself becomes a fingerprint. If the same customer always sends at the same time, that time becomes an identifier. Truly random jitter per invocation eliminates the timing correlation while still achieving the load-spreading goal.
+
 ## Superseded / Semi-Obsolete
 
 ### Individual collector files (collect_job_host_summary_hourly.py, etc.)
@@ -92,6 +104,12 @@
 
 ### Date included in Segment event name
 - The event name was `f"Controller Metrics Daily Rollup {todays_date}"` (including the date). Changed to just `"Controller Metrics Daily Rollup"` in 26614c4 (#113).
+
+### Deterministic jitter for send_to_segment (seeded by service_id)
+- The deterministic jitter from 8d4ae7e (#183) was replaced in f7e2265 (#201) with truly random jitter. The original approach used `random.Random(seed)` where seed came from the installation UUID, meaning the same installation always sent at the same time -- leaking identifiable timing information.
+
+### Salt parameter in anonymize_rollups() / daily_anonymize_and_prepare()
+- The `salt` parameter was removed in 5e6c8f6 (#215), following the library-side removal in metrics-utility PR #399. The salt was no longer used by the anonymization logic.
 
 ### send_to_segment function in apps/tasks/utils.py
 - Moved to `apps/tasks/collectors/send_anonymized_to_segment.py` in 26614c4 (#113) and enhanced with `segment_meta` parameter for timestamp and message_id.

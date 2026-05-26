@@ -124,6 +124,18 @@
 - **What happened**: `sonar-project.properties` was updated to add `**/settings/**` to both `sonar.exclusions` (source scan) and `sonar.coverage.exclusions` (coverage). This excludes `apps/settings/` and `metrics_service/settings.py` from SonarCloud analysis.
 - **Insight**: Settings files contain Dynaconf validators, environment-specific overrides, and configuration constants that are inherently difficult to unit test directly (they run at import time and depend on specific environment state). Excluding them from coverage requirements avoids inflating coverage targets while keeping the coverage signal meaningful for business logic.
 
+### SonarCloud exclusions expanded for boilerplate files
+- **Repo**: ansible/metrics-service
+- **Commits**: 651db2b (#217)
+- **What happened**: `sonar-project.properties` coverage exclusions were expanded to include `metrics_service/asgi.py`, `metrics_service/wsgi.py`, `metrics_service/test_urls.py`, and `metrics_service/settings.py`. These are boilerplate/configuration files that are inherently difficult to unit test (ASGI/WSGI entrypoints, Dynaconf constants, test-only URL config).
+- **Insight**: Excluding genuinely untestable boilerplate from Sonar coverage analysis prevents the coverage metric from being diluted by files that can never realistically reach high coverage. This is complementary to the earlier `**/settings/**` exclusion (956923d #193) which covered settings directories.
+
+### Codecov integration added alongside SonarCloud
+- **Repo**: ansible/metrics-service
+- **Commits**: 527ca15 (#221), b2ac31f (#222)
+- **What happened**: Codecov was added to the pytest workflow in two steps. #221 added `--cov-branch` to the pytest command (for branch coverage) and the `codecov/codecov-action` step to upload `coverage.xml`. #222 enhanced the integration: added `flags: unit-tests` to the upload (for flag-based coverage tracking), `fail_ci_if_error: false` (so Codecov outages don't break CI), and `verbose: true`. A `codecov.yml` configuration file was added with: coverage precision (2 decimal), auto target with 1% threshold for both project and patch coverage, comprehensive ignore patterns (migrations, tests, settings, tools, scripts, .venv), a `unit-tests` flag with `carryforward: true` scoped to `apps/` and `metrics_service/`, and a comment layout with reach/diff/flags/files.
+- **Insight**: Running both Codecov and SonarCloud provides redundancy (different coverage visualization and PR comment styles) and serves different audiences (Codecov for developers via PR comments, SonarCloud for quality gate enforcement). The `carryforward: true` flag means partial test runs still show coverage for untouched files from previous uploads, preventing misleading drops. The 1% threshold prevents CI from failing on minor coverage fluctuations.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch

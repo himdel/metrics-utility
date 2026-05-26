@@ -144,6 +144,12 @@
 - **What happened**: Two new models added to `apps/tasks/models.py` for the two-tier metrics pipeline: `HourlyMetricsCollection` (raw hourly data with unique constraint on collector_type + timestamp) and `DailyMetricsSummary` (daily aggregation with JSONField for hourly collection IDs instead of M2M).
 - **Insight**: See `database_and_migrations.md` for schema details. The two-tier model separates collection from processing -- hourly collections can fail independently (missing hours tracked in daily summary).
 
+### Health endpoint status vocabulary aligned with AAP platform constants
+- **Repo**: ansible/metrics-service
+- **Commits**: 2853e28 (#205)
+- **What happened**: The health endpoint (`GET /health/`) was changed from returning custom status strings (`"healthy"` / `"unhealthy"`) to using shared constants from `ansible_base.lib.constants` (`STATUS_GOOD` / `STATUS_DEGRADED`). This aligns metrics-service with the rest of the AAP platform (gateway, EDA, controller) which all use `"good"` / `"degraded"` / `"failed"` from the same constants module. All inline status string literals in the view were replaced with constant imports. Tests in both `test_health.py` and `test_health_metrics.py` were updated to assert `"good"` instead of `"healthy"`.
+- **Insight**: When multiple services expose health endpoints consumed by the same orchestrator or monitoring system, they must speak the same status vocabulary. Using shared constants from a common library (DAB) prevents drift and makes the status values a contract rather than a convention. The HTTP status codes (200 for good, 503 for degraded) were already correct and unchanged.
+
 ### Task subdirectory structure established (simple/, collectors/, cleanup/)
 - **Commits**: e137d39 (#92)
 - **What happened**: Task functions were reorganized from flat files in `apps/tasks/` into subdirectories: `apps/tasks/simple/` (hello_world), `apps/tasks/collectors/` (all metrics collection: collect_hourly_metrics, collect_snapshot_metrics, daily_metrics_rollup, daily_anonymize_and_prepare, send_anonymized_to_segment), `apps/tasks/cleanup/` (cleanup_old_tasks, cleanup_metrics_data). Each subdirectory has its own `__init__.py` exporting the task functions.

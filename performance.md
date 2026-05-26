@@ -34,6 +34,18 @@
 - **What happened**: Benchmark results were collected at four production-like scales on Jenkins AIO deployments: Scale 1 (2,500 jobs x 5 templates), Scale 2 (25,000 x 5), Scale 3 (250,000 x 5), Scale 4 (25,000 x 50). Results documented in `RESULTS_JENKINS_SCALED_UP.md` and `BENCHMARK_JENKINS_SCALED_UP.md`. In #192, benchmarks were re-run with the updated `benchmark_manage.py` script and two additional scales (3 and 4) were added.
 - **Insight**: Running benchmarks at multiple scales (3 orders of magnitude difference in job count) reveals non-linear behavior in collectors. Having documented results at known scales provides a baseline for performance regression detection.
 
+### OCP benchmark results: 1.5-2x slower than containerized AIO
+- **Repo**: ansible/metrics-service
+- **Commits**: 932467a (#206)
+- **What happened**: The `benchmark_manage.py` script was run against OCP Jenkins deployments (via `oc exec`) across all four scales. Results documented in `RESULTS_JENKINS_SCALED_UP_OCP.md` and `BENCHMARK_JENKINS_SCALED_UP_OCP.md` (step-by-step runbook for reproducing on OCP, including kubeconfig setup, DB user provisioning, and base64 file transfer since OCP containers lack `tar`). OCP is consistently ~1.5-2x slower in wall-clock time due to cluster network round-trip between metrics-tasks pod and postgres pod (vs localhost in containerized AIO). Memory usage is essentially identical across environments. The benchmark script also gained `django.setup()` before model imports, required for OCP (where the script runs outside `manage.py`) but harmless in containerized environments.
+- **Insight**: OCP benchmarks confirmed the network latency hypothesis: the collection pipeline is I/O-bound (DB queries), so the pod-to-pod network hop adds a constant overhead per query. Memory being identical confirms the pipeline doesn't buffer differently based on latency. The `django.setup()` addition is a reminder that scripts run via `oc exec` / `python -c` don't have the Django environment set up by `manage.py`.
+
+### Performance benchmark results moved to handbook
+- **Repo**: ansible/metrics-service
+- **Commits**: f9c6e49 (#227)
+- **What happened**: All 20 benchmark results and documentation files were deleted from `metrics_service/tools/performance_tests/`: 5 `BENCHMARK_*.md` runbooks, 5 `RESULTS_*.md` files, and 10 `results_*_*.txt` raw output files (totaling ~3,700 lines). These were moved to the ansible/handbook repository (PR #1430). The benchmark scripts themselves (`benchmark_manage.py`, `benchmark_api.py`, `collection_rollup_benchmark_hourly.py`) remain in the repo.
+- **Insight**: Results files are point-in-time artifacts that belong in documentation/runbook repositories, not in the code repo. Keeping benchmark scripts in the code repo ensures they stay in sync with the codebase, while results are published separately where they can be updated independently and are discoverable by stakeholders who don't browse the code repo.
+
 ## Superseded / Semi-Obsolete
 
 ### http_benchmark.py (GET-endpoint latency tests)
