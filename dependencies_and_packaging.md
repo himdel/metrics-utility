@@ -203,9 +203,6 @@
 ### metrics-utility bumped to 0.7.20260313
 - Bumped in 26614c4 (#113) for anonymization fixes (StorageSegment `segment_meta` parameter). See the consolidated version bumps entry in the main section.
 
-### metrics-utility version bumped from >=0.7.20260401 to >=0.8.0
-- Bumped in 7cf5d0b (no PR) to pick up metrics-utility 0.8.20260526. This is a major version bump reflecting the library's API changes (salt removal from `anonymize_rollups()`, new collector types). The `>=` minimum pin allows automatic resolution to newer 0.8.x versions.
-
 ### Package data for YAML files added to pyproject.toml
 - **Commits**: 520fd11 (#155)
 - **What happened**: `[tool.setuptools.package-data]` section added: `"apps.settings" = ["*.yaml"]`. This ensures `apps/settings/dispatcherd.yaml` is included in the installed package.
