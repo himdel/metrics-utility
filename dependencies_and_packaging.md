@@ -1,0 +1,203 @@
+# Dependencies and Packaging
+
+> Default repo: metrics-service
+
+## Learnings
+
+### Migration from pip + requirements.txt to UV
+- **Commits**: 6ef9f58, e64f482, 47d8fef, ee93077
+- **What happened**: Over four commits in a single day (Aug 27), the dependency management evolved: requirements.txt was cleaned up (6ef9f58), test dependencies added (e64f482), `psycopg[binary]` changed to just `psycopg` (47d8fef), and finally UV was adopted with `uv.lock` generated and `[tool.uv]` section added to `pyproject.toml` (ee93077). The UV config added dev-dependencies separately from the pyproject `[project.optional-dependencies]`.
+- **Insight**: The `psycopg[binary]` to `psycopg` change (47d8fef) was likely needed because the binary extra pulls in pre-compiled binaries that may not be compatible with all platforms (especially the UBI9 container). Plain `psycopg` requires `libpq-dev` at build time but is more portable.
+
+### dispatcherd moved from optional to core dependency
+- **Commits**: ee93077
+- **What happened**: `dispatcherd>=2025.5.21` was moved from `[project.optional-dependencies].dispatcherd` to the main `dependencies` list in `pyproject.toml`. The separate `[dispatcherd]` optional-dependencies group was removed.
+- **Insight**: This reflects the decision that dispatcherd (the background task worker) is a core requirement, not optional. The service fundamentally needs background task processing to function.
+
+### social-auth-app-django and django-oauth-toolkit added as core deps
+- **Commits**: ee93077
+- **What happened**: `social-auth-app-django>=5.0.0,<5.5` and `django-oauth-toolkit>=2.2.0` were added to the main dependencies list.
+- **Insight**: These are required by DAB's authentication and OAuth2 provider modules. Pinning social-auth to `<5.5` suggests a known incompatibility with newer versions, likely with DAB.
+
+### Dev dependencies duplicated between pyproject.toml sections
+- **Commits**: ee93077
+- **What happened**: The `[tool.uv].dev-dependencies` list largely duplicates the `[project.optional-dependencies].dev` and `[project.optional-dependencies].test` sections. For example, `pytest>=7.4` appears in both `[project.optional-dependencies].test` and `[tool.uv].dev-dependencies`.
+- **Insight**: UV uses its own `dev-dependencies` key rather than reading from `[project.optional-dependencies]`. This duplication can lead to version drift if one is updated but not the other. Ideally, one source of truth should be used.
+
+### Redis removed as a dependency
+- **Commits**: d85322e (#18)
+- **What happened**: Redis-related packages were removed from `pyproject.toml` and the `uv.lock` was updated to drop them. The cache backend was switched to Django's local memory cache for development.
+- **Insight**: Redis was carried over from the template service but never used. Removing unused dependencies reduces the attack surface and simplifies the development setup.
+
+### metrics-utility pinned to a specific git commit rather than a branch
+- **Commits**: edb4626 (#25)
+- **What happened**: The `metrics-utility` dependency was initially pointed at a local directory, then changed to a GitHub repository pointing at the `devel` branch, and finally pinned to a specific commit hash in `pyproject.toml`, `requirements-build.txt`, and `requirements-pinned.txt`. The commit message says "Changed pyproject.toml, requirements-build.txt, and requirements-pinned.txt to point to a specific commit of metrics-utility instead of the devel branch."
+- **Insight**: Pinning to a specific commit rather than a branch is essential for reproducible builds. A branch reference (`@devel`) means different builds at different times get different code, which can cause mysterious CI failures. The trade-off is that you need to manually bump the commit hash when you want new changes from metrics-utility.
+
+### sync-requirements system bridges uv and Konflux requirements
+- **Commits**: f848024 (#24)
+- **What happened**: A `sync-requirements.sh` script was added that uses `uv export --format requirements.txt` to generate `requirements-pinned.txt` (production, with hashes), `dev-requirements.txt` (dev-only, with hashes), and `requirements-build.txt` (compiled from pinned) from `uv.lock`. A pre-commit hook auto-runs this script when `pyproject.toml` or `uv.lock` changes.
+- **Insight**: This system solves the dual-dependency-management problem: developers use `uv` and `uv.lock`, but Konflux hermetic builds need pip-format requirements with hashes. The `uv export` command provides the bridge, and the pre-commit hook + CI workflow ensure the files stay in sync.
+
+### croniter and psycopg2-binary added as dependencies
+- **Commits**: c6947ce (#14), edb4626 (#25)
+- **What happened**: `croniter` 6.0.0 was added in c6947ce for cron expression parsing in the task scheduler. `psycopg2-binary` was added in edb4626 alongside the existing `psycopg` for PostgreSQL LISTEN/NOTIFY support used by dispatcherd.
+- **Insight**: Having both `psycopg` and `psycopg2-binary` is intentional -- they are different drivers. `psycopg` (v3) is used by Django for ORM operations, while `psycopg2-binary` may be needed by dispatcherd or other components that haven't migrated to psycopg v3.
+
+### Django upgraded from 4.2 to 5.2.7 with strict pin
+- **Commits**: 10581e9 (#42)
+- **What happened**: Django was upgraded from `>=4.2,<5.0` to `==5.2.7` (exact pin). The `django-ansible-base` was pinned to `==2025.10.20`, `drf-spectacular` to `>=0.26.5`, and `metrics-utility` to `==0.7.20251112` (replacing the git reference). Python requirement changed from `>=3.11` to `==3.12.*`. The Docker base image changed from `ubi9/python-311` to `ubi9/python-312`. Ruff target version changed from `py310` to `py312`. The pytest deprecation warning filter was updated from `RemovedInDjango50Warning` to `RemovedInDjango60Warning`.
+- **Insight**: The jump from Django 4.2 LTS to 5.2 is a major version upgrade skipping the entire 5.0/5.1 cycle. Exact pinning (`==5.2.7`) over range pinning (`>=5.2,<6.0`) trades automatic patch updates for build reproducibility. The Python 3.12 strict pin (`==3.12.*`) prevents accidental use of 3.13+ which might have Django/DAB incompatibilities.
+
+### metrics-utility collector imports changed for controller-specific modules
+- **Commits**: 10581e9 (#42)
+- **What happened**: The metrics-utility import path changed from `metrics_utility.library.collectors` to `metrics_utility.library.collectors.controller`. The specific collector names also changed: `anonymous` became `job_host_summary` (aliased back as `anonymous`), `job_host_summary` became `main_host`, and `host_metric` became `main_jobevent`. A TODO comment was added noting these aliases are temporary.
+- **Insight**: The metrics-utility library reorganized its public API between versions, moving from flat collector imports to controller-specific submodules. The `as` aliases maintain backward compatibility with the existing task function signatures, but this creates a confusing indirection layer where function names don't match their actual purpose.
+
+### django-prometheus and segment-analytics-python added as new dependencies
+- **Commits**: 10581e9 (#42), e486eb4 (#41)
+- **What happened**: `django-prometheus>=2.3.1` was added for Prometheus metrics exposition, and `backoff` + `segment-analytics-python` were added (presumably for analytics data transmission with retry logic). These were added to both `pyproject.toml` and the generated requirements files.
+- **Insight**: The `segment-analytics-python` dependency signals the service will send anonymized metrics data to Segment (a customer data platform), which aligns with the `ANONYMIZATION_GROUP` tasks. The `backoff` library provides retry logic with exponential backoff for network calls.
+
+### uv removed as a runtime dependency
+- **Commits**: 6059d8c (#45)
+- **What happened**: `uv>=0.8.22` was removed from the main `dependencies` list in `pyproject.toml`. The `[tool.uv].dev-dependencies` section was moved to `[dependency-groups].dev` (PEP 735 format).
+- **Insight**: UV as a runtime dependency was wrong -- it's a build/development tool, not something the application needs at runtime. Moving dev dependencies from `[tool.uv].dev-dependencies` to `[dependency-groups].dev` follows the emerging PEP 735 standard, which is tool-agnostic.
+
+### Python pinned to ==3.12 from >=3.11
+- **Commits**: c8e5f0d (#36), 10581e9 (#42)
+- **What happened**: The `requires-python` was tightened from `>=3.11` to `==3.12` in c8e5f0d (noted as "Forcing python 12 as Python 14 doesn't support Django and was breaking Pytests"), then to `==3.12.*` in 10581e9.
+- **Insight**: Python 3.14 likely refers to the development version, which caused test failures. The strict pin ensures CI and production use the same Python version. The `==3.12.*` form allows patch releases (3.12.x) while preventing minor version bumps.
+
+### metrics-utility version pin relaxed from exact to minimum
+- **Commits**: 4804647 (#67)
+- **What happened**: `metrics-utility==0.7.20251112` was changed to `metrics-utility>=0.7.20251112` in `pyproject.toml`, and the lockfile was updated accordingly.
+- **Insight**: The exact pin (`==`) was overly restrictive and required a pyproject.toml change for every metrics-utility patch. The minimum pin (`>=`) allows automatic resolution to newer versions while maintaining a known-good floor. This is appropriate for a sister project where API compatibility is maintained across patch versions.
+
+### Major dependency removal during retrofit prep
+- **Commits**: 5fb6ead (#73)
+- **What happened**: Several dependencies were removed from `pyproject.toml`: `channels`, `django-oauth-toolkit`, `django-split-settings`, `social-auth-app-django`, `drf-spectacular`. `django-extensions` was moved from dev dependencies to main dependencies. The `uv.lock` shrank by ~216 lines.
+- **Insight**: The retrofit to platform-service-framework eliminated the need for many third-party packages. OAuth2 provider and social auth were removed because the service authenticates via JWT from the AAP gateway rather than being its own OAuth provider. DRF Spectacular was removed because OpenAPI docs will be provided by `ansible_base.api_documentation`. Keeping `django-split-settings` was dead weight since Dynaconf had replaced it months earlier.
+
+### Package discovery switched to automatic in pyproject.toml
+- **Commits**: 5fb6ead (#73)
+- **What happened**: `pyproject.toml` moved from explicit package listing to `[tool.setuptools.packages.find]` with `where = ["."]`. This was needed because apps were being reorganized (api app removed, dynamic_settings added, health app added) and explicit listing required manual updates on every app change.
+- **Insight**: Automatic package discovery reduces maintenance burden when adding/removing apps, but means any directory with an `__init__.py` becomes a package. This is generally fine for a service repo where all directories are intentional.
+
+### django-cors-headers removed (CORS handled at gateway)
+- **Commits**: 911dd60 (#77)
+- **What happened**: `django-cors-headers` was removed from dependencies, `corsheaders` removed from `INSTALLED_APPS`, CORS middleware removed, and all `CORS_*` settings removed from defaults, development, and production configs.
+- **Insight**: In the AAP architecture, CORS is handled at the gateway/proxy level, not by individual services. Having CORS middleware in the service was unnecessary overhead and potential misconfiguration risk (e.g., `CORS_ALLOW_ALL_ORIGINS: true` in development settings could leak to production).
+
+### DAB extras expanded for platform-service-framework
+- **Commits**: 911dd60 (#77), 00e68ad (#84)
+- **What happened**: The `django-ansible-base` dependency changed from `[jwt_consumer,rbac,rest_filters]` to `[rest_filters,jwt_consumer,resource_registry,rbac,feature_flags,api_documentation]`, adding `resource_registry`, `feature_flags`, and `api_documentation` extras.
+- **Insight**: The expanded DAB extras reflect the full platform-service-framework integration. Each extra adds a DAB app that provides standardized functionality: `api_documentation` replaces DRF Spectacular, `resource_registry` enables cross-service resource syncing, and `feature_flags` provides the DAB-standard toggle mechanism (though the service still uses its own `apps/dynamic_settings/` for now).
+
+### psycopg switched from binary to source builds
+- **Commits**: e09243d (#95)
+- **What happened**: `psycopg[binary]` changed to `psycopg[c]` and `psycopg2-binary` changed to `psycopg2` in `pyproject.toml`. The `[c]` extra for psycopg3 builds the C-accelerated adapter from source, while plain `psycopg2` builds from source against `libpq-devel`.
+- **Insight**: Binary wheels contain pre-compiled C code that can't be traced by SBOM tools. Red Hat certification requires full source provenance. The `[c]` extra for psycopg3 is the recommended source-build path that still provides C-speed performance (unlike `[binary]` which ships pre-built binaries).
+
+### django-ansible-base version pin relaxed with uv source override
+- **Commits**: e09243d (#95)
+- **What happened**: DAB changed from `==2025.10.20` (exact pin) to `>=2025.12.12` (minimum), while `[tool.uv.sources]` was changed from `rev = "devel"` (branch) to a specific commit hash. A comment explains the dual approach: `uv sync` uses the git source, while `pip install` uses PyPI.
+- **Insight**: The minimum pin in `pyproject.toml` allows production builds (via pip) to use the latest compatible PyPI release, while development (via uv) uses a specific commit from the git repo. This avoids the issue where a floating `devel` branch reference in uv causes different developers to get different versions.
+
+### poethepoet task runner added
+- **Commits**: 00e68ad (#84)
+- **What happened**: `poethepoet>=0.37.0` was added to dev dependencies, and `[tool.poe.tasks]` was configured in `pyproject.toml` with tasks for `lint`, `format`, `unit-test`, `check` (all three combined), `clean`, `validate` (runs framework validator), and `update` (runs framework template updater).
+- **Insight**: The poe task runner provides convenient aliases (`uv run poe check`) for common development workflows. The `validate` and `update` tasks integrate with the platform-service-framework's copier template system, reading `.copier-answers.yml` to determine the template source and branch.
+
+### Targeted --no-binary replaces blanket source-only builds
+- **Commits**: 095d0f0 (#98), 400b419 (#100), 4672f09 (#102), 72c8a74 (#104)
+- **What happened**: After #95 introduced global `--no-binary :all:` for SBOM compliance, a rapid iteration cycle (4 PRs in 2 days) discovered this was too aggressive. #98 removed it from the Dockerfile. #100/#102 moved it into `requirements-build.txt` as a pip directive (so Cachi2 would see it). #104 replaced the blanket `--no-binary :all:` with targeted directives: `--no-binary cryptography`, `--no-binary psycopg`, `--no-binary psycopg2`, `--no-binary psycopg-c`. Other packages (Django, pandas, numpy) use binary wheels.
+- **Insight**: Source-only builds for every package is impractical in hermetic builds -- many packages need build toolchains (Rust for cryptography, C for numpy) that aren't available or take too long. The targeted approach provides SBOM compliance for the security-critical packages (cryptography, database drivers) while keeping builds fast for everything else.
+
+### Build-time extra dependencies for hermetic builds
+- **Commits**: 204de50 (#103), 72c8a74 (#104)
+- **What happened**: `packaging>=20.0` was added as a runtime dependency to support setuptools-scm during source builds (#103). Then #104 introduced `requirements-build-extra.txt` containing build-time-only deps (pytest-runner, setuptools-scm, wheel) so Cachi2 prefetches them. The `sync-requirements.sh` was updated to compile build requirements from both `requirements-pinned.txt` and `requirements-build-extra.txt`.
+- **Insight**: Hermetic builds can't fetch packages at build time, so all build-time dependencies (not just runtime deps) must be prefetched. Packages like django-crum use pytest-runner in their setup.py, which fails in an offline build without it. The separate `requirements-build-extra.txt` keeps build deps distinct from runtime deps.
+
+### Dev dependencies deduplicated from optional-dependencies to dependency-groups
+- **Commits**: 31edf97 (#114)
+- **What happened**: The `[project.optional-dependencies].dev` section was removed from `pyproject.toml` entirely. Its contents were merged into `[dependency-groups].dev` (PEP-735). The rationale: uv ignores optional-dependencies by default but installs dependency-groups, and nothing pip-installs `metrics-service[dev]`. Having two independent sets of dev deps was pointless duplication. `psutil` was added to dev deps (for performance tests in #97).
+- **Insight**: PEP-735 dependency-groups are the modern approach for tool-specific extras like dev dependencies. Unlike `[project.optional-dependencies]`, they're tool-aware (uv, pip-tools) and don't affect the package's public API. The deduplication eliminated the version drift risk documented in the earlier learning about dev dependency duplication.
+
+### metrics-utility version bumped frequently during active development
+- **Commits**: 1580ff2 (#109), 05dc0c9 (#112), 31edf97 (#114), c946e15 (#122)
+- **What happened**: metrics-utility was bumped through multiple versions in rapid succession (0.7.20260218, 0.7.20260223, 0.7.20260224, 0.7.20260301), each time to pick up new collector/rollup classes being added to the library in parallel.
+- **Insight**: The frequent bumps show tight coupling between this service and the library during active feature development. The `>=` minimum pin works well -- uv.lock ensures development consistency while production builds use newer patch releases. Library bumps are often prerequisites for service-side feature work.
+
+### pyproject.toml version pinned to 1.0.0 (no longer dynamic)
+- **Commits**: 72c8a74 (#104)
+- **What happened**: `version` changed from `dynamic = ["version"]` (using setuptools-scm) to `version = "1.0.0"` in pyproject.toml. This was needed because hermetic builds don't have git history, so setuptools-scm can't determine the version.
+- **Insight**: Dynamic versioning via setuptools-scm requires `.git` directory access, which hermetic/container builds deliberately don't have. Pinning to a static version is simpler and more reliable for container images where the image tag is the real version identifier.
+
+### Legacy requirements files deleted; pip install from pyproject.toml directly
+- **Commits**: 531b608 (#129)
+- **What happened**: All legacy requirements files were deleted: `dev-requirements.txt`, `requirements-build.txt`, `requirements-build-extra.txt`, `requirements-pinned.txt`, `requirements.txt`, `REQUIREMENTS.md`, `rpms.in.yaml`, `rpms.lock.yaml`. The `sync-requirements.sh` script and `sync-requirements.yml` GitHub Actions workflow were also removed. The production Dockerfile now installs directly from `pyproject.toml` via `pip install --prefer-binary .`. New production dependencies added: `gunicorn` and `whitenoise`. `psycopg[c]` reverted to `psycopg[binary]` and `psycopg2` reverted to `psycopg2-binary` since source builds are no longer needed.
+- **Insight**: The entire sync-requirements bridge between uv and Konflux/pip was eliminated. With the production Dockerfile using `pip install .` directly from `pyproject.toml`, there's no need for separate pip-format requirements files. This removes a significant maintenance burden (keeping requirements files in sync with uv.lock). The revert to binary psycopg packages means faster builds at the cost of SBOM traceability -- suggesting the SBOM compliance approach may have shifted.
+
+### gunicorn and whitenoise added as production dependencies
+- **Commits**: 531b608 (#129)
+- **What happened**: `gunicorn` was added as a dependency for production WSGI serving (replacing Django's development `runserver`), and `whitenoise` was added for efficient static file serving without requiring Nginx to serve them directly.
+- **Insight**: `whitenoise` is inserted as middleware (`WhiteNoiseMiddleware`) right after `SecurityMiddleware` and serves static files from `STATIC_ROOT`. This means static files are served by the Python process rather than Nginx, which is simpler to configure but slightly less performant for high-traffic scenarios. Nginx still handles TLS termination and reverse proxying.
+
+## Superseded / Semi-Obsolete
+
+### requirements.txt as primary dependency source
+- After the UV migration (ee93077), `pyproject.toml` + `uv.lock` became the source of truth. The `requirements.txt` file was retained but was no longer the primary mechanism. The sync-requirements system (f848024) now generates pip-format requirements from uv.lock automatically.
+
+### metrics-utility pinned to git commit
+- The git commit pin from edb4626 (#25) was replaced in 10581e9 (#42) with a proper version pin: `metrics-utility==0.7.20251112`.
+
+### Django 4.2 LTS
+- Upgraded to Django 5.2.7 in 10581e9 (#42). The 4.2 LTS pin (`>=4.2,<5.0`) is no longer used.
+
+### metrics-utility exact pin ==0.7.20251112
+- Relaxed to `>=0.7.20251112` in 4804647 (#67) to allow version upgrades without pyproject.toml changes.
+
+### drf-spectacular dependency
+- Removed in 5fb6ead (#73). OpenAPI schema generation will be handled by `ansible_base.api_documentation` instead.
+
+### django-oauth-toolkit and social-auth-app-django
+- Removed in 5fb6ead (#73). The service uses JWT from the gateway for authentication, not its own OAuth2 provider.
+
+### django-split-settings
+- Was already unused (replaced by Dynaconf in 8b4aa31 #26) but remained in dependencies. Finally removed in 5fb6ead (#73).
+
+### django-cors-headers
+- Removed in 911dd60 (#77). CORS is handled at the AAP gateway/proxy level, making the Django middleware unnecessary.
+
+### psycopg[binary] and psycopg2-binary
+- Changed to `psycopg[c]` and `psycopg2` (source builds) in e09243d (#95) for SBOM compliance. Binary wheels can't be traced by Red Hat's software bill of materials tools.
+
+### Dev dependencies duplicated between optional-dependencies and dependency-groups
+- The `[project.optional-dependencies].dev` section was removed in 31edf97 (#114). Dev deps now live only in `[dependency-groups].dev` (PEP-735). No need for two independent sets.
+
+### Global --no-binary :all: in requirements-build.txt
+- The blanket `--no-binary :all:` from 400b419 (#100) was replaced by targeted `--no-binary` directives for only cryptography/psycopg packages in 72c8a74 (#104).
+
+### setuptools-scm dynamic versioning
+- Replaced by static `version = "1.0.0"` in 72c8a74 (#104) because hermetic builds can't access git history.
+
+### django-ansible-base exact pin ==2025.10.20
+- Relaxed to `>=2025.12.12` in e09243d (#95) with a specific git commit in `[tool.uv.sources]` for development builds.
+
+### sync-requirements system (script + CI workflow + pre-commit hook)
+- The `sync-requirements.sh` script, `sync-requirements.yml` workflow, and pre-commit hook (from f848024 #24) were all deleted in 531b608 (#129). The production Dockerfile now installs directly from `pyproject.toml`, eliminating the need to bridge uv.lock to pip-format requirements.
+
+### psycopg[c] and psycopg2 for source builds
+- Reverted to `psycopg[binary]` and `psycopg2-binary` in 531b608 (#129). Source builds are no longer required since the production Dockerfile uses binary wheels.
+
+### requirements-build-extra.txt for hermetic build-time deps
+- Deleted in 531b608 (#129) along with all other requirements files. Build-time deps like pytest-runner and setuptools-scm are no longer needed since the production build uses binary wheels.
+
+### metrics-utility bumped to 0.7.20260313
+- Bumped in 26614c4 (#113) for anonymization fixes (StorageSegment `segment_meta` parameter). See the consolidated version bumps entry in the main section.
+
+### Package data for YAML files added to pyproject.toml
+- **Commits**: 520fd11 (#155)
+- **What happened**: `[tool.setuptools.package-data]` section added: `"apps.settings" = ["*.yaml"]`. This ensures `apps/settings/dispatcherd.yaml` is included in the installed package.
+- **Insight**: YAML config files in Python packages are not included by default (only `.py` files are). Without this entry, `pip install .` would miss `dispatcherd.yaml`, causing runtime failures when the dispatcherd config loader tries to read it.
