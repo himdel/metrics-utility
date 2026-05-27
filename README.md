@@ -26,17 +26,11 @@ Each learning entry has these fields:
 | [settings_and_configuration.md](settings_and_configuration.md) | Dynaconf, feature flags, environment variables, URL prefix, secrets management, validation |
 | [task_system.md](task_system.md) | Task registry, scheduling (signals to polling to APScheduler), dispatcherd, concurrency fixes |
 | [testing.md](testing.md) | Test organization, SQLite-to-PostgreSQL switch, coverage config, test patterns |
+| [multi_commit_arcs.md](multi_commit_arcs.md) | Multi-commit arcs: sequences where an approach evolved across 3+ PRs |
 
 ## Notable multi-commit arcs
 
-Several learnings span many commits and PRs. These are the most instructive arcs:
-
-- **Validation saga** (settings_and_configuration.md): added -> broke -> turned off -> re-enabled with proper messages (5 PRs over 3 months)
-- **Worker count** (task_system.md, docker_and_deployment.md): 4 -> 1 (band-aid) -> 4 (real fix with atomic updates and advisory locks)
-- **Feature flag evolution** (task_system.md): single flag -> overly broad scope -> three independent flags
-- **URL prefix** (settings_and_configuration.md): env var -> renamed env var -> Django setting -> proper prefix interpretation (4 iterations)
-- **Secrets management** (settings_and_configuration.md): SEGMENT_WRITE_KEY from config -> from file with base64 -> from file without base64
-- **CodeQL** (ci_cd.md): created then immediately reverted (wrong file contents, 5 minutes apart)
+See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-commit arcs — sequences where an approach was tried, revised, and sometimes revised again across multiple PRs.
 
 ## Last commit processed
 

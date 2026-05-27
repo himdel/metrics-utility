@@ -86,6 +86,7 @@ Process batches **sequentially** (oldest first) so later commits can supersede e
 - Read all learnings files in the learnings checkout
 - Check for duplicates across files (same learning in multiple places) — keep the canonical one, replace others with cross-references
 - Update `README.md` if new topic files were created
+- Review `multi_commit_arcs.md` — add new arcs (an approach tried, revised, revised again across 3+ PRs) and update existing ones if new commits extended them
 - Update or add this repo's row in the "Last commit processed" table (format: `| <repo> | <short_hash> | <date> | <subject> |`)
 - Report what was added
 
