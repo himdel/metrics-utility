@@ -1,22 +1,21 @@
 # Testing
-
 ### CCSPv2 report test pattern: subprocess + openpyxl validation
 - **Repo**: ansible/metrics-utility
 - **Commits**: bcac18e (#41), 647eb28 (#55)
 - **What happened**: The first CCSPv2 test (PR #41) ran `manage.py build_report` via `subprocess.run` with env vars set, then validated the generated XLSX file. Initially it used `pandas.read_excel` / `pd.ExcelFile` to check sheet names and column headers. PR #55 switched to `openpyxl.load_workbook` for deeper validation: checking not just column headers but also cell values, formulas (like `=SUM(J7:J12)`), and the "Usage Reporting" sheet's non-standard header row (starts at row 6). The expected data structure changed from flat lists of column names to a list of dicts mapping column name to expected column values.
 - **Insight**: openpyxl is better than pandas for XLSX report testing because it preserves formulas as strings (pandas evaluates them), allows reading specific rows, and doesn't reinterpret cell types.
 
-### Snapshot testing framework for CCSP/CCSPv2 reports
-- **Repo**: ansible/metrics-utility
-- **Commits**: cb614cf (#56)
-- **What happened**: A snapshot test framework was introduced under `metrics_utility/test/snapshot_tests/`. It generates reports with various env var combinations (3 sets of company names, prices, SKUs; multiple month ranges and since/until pairs) and compares them against stored reference files. A `CCSP_snapshot_generator.py` creates snapshot definition JSON files containing env vars, CLI params, and metadata. The snapshot utilities handle report generation, comparison, and storage. Reports needed to be made deterministic (no random elements) for snapshot comparison to work.
-- **Insight**: Snapshot tests catch unintended changes in complex XLSX report output, but require report generation to be deterministic -- random values or timestamps in output break the pattern.
-
 ### CCSP test added with shared conftest helpers
 - **Repo**: ansible/metrics-utility
 - **Commits**: 9685afa (#60)
 - **What happened**: A CCSP report test was added alongside the existing CCSPv2 test. Common validation functions (`validate_sheet_tab_names`, `validate_sheet_columns`, `normalize_column`) and the `cleanup` fixture were extracted into `metrics_utility/test/ccspv_reports/conftest.py` to avoid duplication between the two test files.
 - **Insight**: When adding a second report type test with the same validation pattern, extract shared helpers into conftest early to keep tests DRY.
+
+### Snapshot testing framework for CCSP/CCSPv2 reports
+- **Repo**: ansible/metrics-utility
+- **Commits**: cb614cf (#56)
+- **What happened**: A snapshot test framework was introduced under `metrics_utility/test/snapshot_tests/`. It generates reports with various env var combinations (3 sets of company names, prices, SKUs; multiple month ranges and since/until pairs) and compares them against stored reference files. A `CCSP_snapshot_generator.py` creates snapshot definition JSON files containing env vars, CLI params, and metadata. The snapshot utilities handle report generation, comparison, and storage. Reports needed to be made deterministic (no random elements) for snapshot comparison to work.
+- **Insight**: Snapshot tests catch unintended changes in complex XLSX report output, but require report generation to be deterministic -- random values or timestamps in output break the pattern.
 
 ### Complex CCSPv2 test validates cell values across all content-usage sheets
 - **Repo**: ansible/metrics-utility
@@ -36,17 +35,23 @@
 - **What happened**: All CCSP/CCSPv2 tests had hardcoded paths like `/awx_devel/awx-dev/metrics-utility/metrics_utility/test/test_data` for both `METRICS_UTILITY_SHIP_PATH` and output file paths. These were changed to relative paths (`./metrics_utility/test/test_data`). Test files were also renamed from `complex_test_CCSPv2.py` to `test_complex_CCSPv2.py` so pytest autodiscovery would find them (pytest requires `test_` prefix by default). Snapshot definition JSON files also had their paths updated.
 - **Insight**: Tests with hardcoded absolute paths from a specific developer's environment silently pass in that environment but fail everywhere else -- use relative paths and ensure files follow pytest's `test_` naming convention for discovery.
 
-### pull_request_target workflow needs explicit head ref checkout
+### Gather tests for directory and S3 ship targets
 - **Repo**: ansible/metrics-utility
-- **Commits**: aefaebb (#106), e5d8a7d (#93)
-- **What happened**: The pytest workflow was changed from `pull_request` to `pull_request_target` trigger (in #89/#93) so that SonarCloud could access the `CICD_ORG_SONAR_TOKEN_CICD_BOT` repository secret. However, `pull_request_target` checks out the base branch by default, not the PR branch. PR #106 fixed this by adding `ref: ${{ github.event.pull_request.head.ref }}` and `repository: ${{ github.event.pull_request.head.repo.full_name }}` to the checkout step, ensuring the PR's actual code is tested.
-- **Insight**: When switching a GitHub Actions workflow from `pull_request` to `pull_request_target` to access secrets, you must explicitly configure the checkout action to use the PR head ref -- otherwise you test the base branch code, not the PR changes.
+- **Commits**: d5d1028 (#85), 968b4c8 (#88)
+- **What happened**: Integration tests were added for the `gather_automation_controller_billing_data` command with both `directory` and `s3` ship targets. The directory test runs gather with `--ship --until=10m --force`, then verifies tarballs were created at the expected path using a glob. The S3 test does the same but ships to a MinIO bucket. The tests require PostgreSQL with AWX schema and (for S3) a running MinIO instance. The mock_awx DB host was made configurable via `METRICS_UTILITY_DB_HOST` env var to support both `localhost` (CI) and `postgres` (Docker Compose). The CI workflow patches mock_awx settings via `sed` to match the CI database credentials.
+- **Insight**: Gather integration tests need a real database with the AWX schema, not just mock data -- the collectors run actual SQL queries against Controller tables, so the schema must exist even if the tables are empty.
 
 ### Dual-mode test execution (internal + external) for coverage
 - **Repo**: ansible/metrics-utility
 - **Commits**: 21f9c67 (#95)
 - **What happened**: A `metrics_utility/test/util.py` module was introduced with four test runner functions: `run_build_ext`/`run_gather_ext` (subprocess-based) and `run_build_int`/`run_gather_int` (direct Python import). The `_ext` variants take `(env_dict, args_list)` and run `manage.py` as a subprocess. The `_int` variants take `(env_dict, options_dict)`, call `prepare()` to set up mock_awx, import the Command class, and call it directly within a `temporary_env` context manager. Every test was updated to run in both modes. The `prepare()` function was extracted from `manage()` in `metrics_utility/__init__.py` so tests can initialize the AWX mock environment without running the full management utility.
 - **Insight**: Subprocess-based tests (`_ext`) don't contribute to pytest-cov coverage because they run in a separate process -- running the same tests via direct Python import (`_int`) captures the coverage, effectively doubling test value without writing new test logic.
+
+### pull_request_target workflow needs explicit head ref checkout
+- **Repo**: ansible/metrics-utility
+- **Commits**: aefaebb (#106), e5d8a7d (#93)
+- **What happened**: The pytest workflow was changed from `pull_request` to `pull_request_target` trigger (in #89/#93) so that SonarCloud could access the `CICD_ORG_SONAR_TOKEN_CICD_BOT` repository secret. However, `pull_request_target` checks out the base branch by default, not the PR branch. PR #106 fixed this by adding `ref: ${{ github.event.pull_request.head.ref }}` and `repository: ${{ github.event.pull_request.head.repo.full_name }}` to the checkout step, ensuring the PR's actual code is tested.
+- **Insight**: When switching a GitHub Actions workflow from `pull_request` to `pull_request_target` to access secrets, you must explicitly configure the checkout action to use the PR head ref -- otherwise you test the base branch code, not the PR changes.
 
 ### Exhaustive empty-data test for all report type + sheet combinations
 - **Repo**: ansible/metrics-utility
@@ -78,17 +83,17 @@
 - **What happened**: The `temporary_env` helper in `test/util.py` was updated to support removing env vars by passing `None` as the value. Previously it just called `os.environ.update(new_env)`, which doesn't remove keys. Now it iterates the dict: keys with `None` values are removed via `os.environ.pop(k, None)`, and others are set normally. This was needed for S3 env var validation tests that need to ensure certain vars are unset.
 - **Insight**: A test utility for env var manipulation should support both setting and unsetting variables -- use `None` as a sentinel for "remove this key" to keep the API simple.
 
-### Parameter validation tests for build_report and gather date/ephemeral arguments
-- **Repo**: ansible/metrics-utility
-- **Commits**: f2b5a83 (#128)
-- **What happened**: Comprehensive parameter validation was added for `--since`, `--until`, `--month`, and `--ephemeral` arguments. New exception classes were introduced (`DateFormatError`, `MissingRequiredParameter`, `BadParameter`). A `handle_month()` helper was extracted from `build_report._handle_month()` into `helpers.py` with strict `strptime('%Y-%m')` validation (previously used the permissive `dateutil.parser.parse`). Regex patterns (`SINCE_AND_UNTIL_BUILD_PATTERN`, `SINCE_AND_UNTIL_GATHER_PATTERN`, `ALLOWED_EPHEMERAL_PATTERN`) enforce format constraints. The `build_report` command's `handle` method was split into `handle` (catches exceptions, logs, exits) and `_handle` (actual logic), matching the gather command's existing pattern. A `test_extra_params_validation.py` test file validates error messages for invalid inputs. `--until` now defaults to today when `--since` is provided without `--until`.
-- **Insight**: Splitting command `handle` into a public wrapper (exception handling + exit codes) and private `_handle` (logic) enables tests to call `_handle` directly and assert on raised exceptions rather than catching `SystemExit`.
-
 ### Renewal guidance unit tests: query methods and interval calculations
 - **Repo**: ansible/metrics-utility
 - **Commits**: 3e559cf (#130), 01a23c6 (#138)
 - **What happened**: Two sets of unit tests were added for the `ReportRenewalGuidance` class: (1) PR #130 tests `df_managed_nodes_query` and `df_deleted_managed_nodes_query` methods with mocked dataframes, verifying correct filtering of deleted/non-deleted/ephemeral hosts. It uses a `generate_renewal_guidance_dataframe()` helper in `test/util.py` that creates 10 hardcoded test hosts covering each scenario (non-deleted, deleted, ephemeral boundary cases). (2) PR #138 tests the `get_intervals()` sliding window method that generates time intervals for ephemeral host classification. The tests validate window count, window progression (each starts 1 day after the previous), boundary precision (microsecond-level), and edge cases (single day, range smaller than interval, year boundary crossing).
 - **Insight**: Testing the renewal guidance report's query/filtering and interval logic with mocked data (rather than full integration tests) enables fast, deterministic validation of the complex ephemeral classification logic.
+
+### Parameter validation tests for build_report and gather date/ephemeral arguments
+- **Repo**: ansible/metrics-utility
+- **Commits**: f2b5a83 (#128)
+- **What happened**: Comprehensive parameter validation was added for `--since`, `--until`, `--month`, and `--ephemeral` arguments. New exception classes were introduced (`DateFormatError`, `MissingRequiredParameter`, `BadParameter`). A `handle_month()` helper was extracted from `build_report._handle_month()` into `helpers.py` with strict `strptime('%Y-%m')` validation (previously used the permissive `dateutil.parser.parse`). Regex patterns (`SINCE_AND_UNTIL_BUILD_PATTERN`, `SINCE_AND_UNTIL_GATHER_PATTERN`, `ALLOWED_EPHEMERAL_PATTERN`) enforce format constraints. The `build_report` command's `handle` method was split into `handle` (catches exceptions, logs, exits) and `_handle` (actual logic), matching the gather command's existing pattern. A `test_extra_params_validation.py` test file validates error messages for invalid inputs. `--until` now defaults to today when `--since` is provided without `--until`.
+- **Insight**: Splitting command `handle` into a public wrapper (exception handling + exit codes) and private `_handle` (logic) enables tests to call `_handle` directly and assert on raised exceptions rather than catching `SystemExit`.
 
 ### Shared test fixtures extracted to root conftest.py for renewal guidance tests
 - **Repo**: ansible/metrics-utility
@@ -101,12 +106,6 @@
 - **Commits**: 0816f67 (#144), e65b320 (#145)
 - **What happened**: An integration test was added that runs gather with `--ship --since=2025-06-12 --until=2025-06-14` against test data, then opens the produced tarball, finds `job_host_summary.csv`, and compares each line against expected values. The test validates column headers, row count, and exact field values (host names, org names, timestamps). The SQL test data script had to be updated from `NOW()` to fixed timestamps (#145) because `NOW()` produced timestamps outside the gather time window, causing empty CSVs.
 - **Insight**: Gather integration tests that validate CSV content line-by-line require fixed timestamps in test data -- any use of `NOW()` or dynamic timestamps in SQL scripts will cause the test to be flaky or empty depending on when it runs.
-
-### Gather tests for directory and S3 ship targets
-- **Repo**: ansible/metrics-utility
-- **Commits**: d5d1028 (#85), 968b4c8 (#88)
-- **What happened**: Integration tests were added for the `gather_automation_controller_billing_data` command with both `directory` and `s3` ship targets. The directory test runs gather with `--ship --until=10m --force`, then verifies tarballs were created at the expected path using a glob. The S3 test does the same but ships to a MinIO bucket. The tests require PostgreSQL with AWX schema and (for S3) a running MinIO instance. The mock_awx DB host was made configurable via `METRICS_UTILITY_DB_HOST` env var to support both `localhost` (CI) and `postgres` (Docker Compose). The CI workflow patches mock_awx settings via `sed` to match the CI database credentials.
-- **Insight**: Gather integration tests need a real database with the AWX schema, not just mock data -- the collectors run actual SQL queries against Controller tables, so the schema must exist even if the tables are empty.
 
 ### Broken test tarballs moved to separate directory
 - **Repo**: ansible/metrics-utility
@@ -186,6 +185,12 @@
 - **What happened**: The big refactor commit added 15+ new test files in one PR, including `test_access_control_mixin.py`, `test_api_views_extended.py`, `test_base_views_comprehensive.py`, `test_core_permissions.py`, `test_core_utils.py`, `test_dashboard_views.py`, `test_final_coverage.py`, `test_init_service_id_command.py`, `test_metrics_service_command.py`, `test_run_dispatcherd_comprehensive.py`, `test_tasks_api_comprehensive.py`, `test_tasks_views_extended.py`, and `test_urls_basic.py`. Some empty test files were also committed (`test_models_extended.py`, `test_task_management_extended.py`, `test_tasks_utils.py`).
 - **Insight**: Committing empty test files suggests a "placeholder" approach to test planning, but it also creates noise. The test coverage went from minimal to 35%+ in a single commit, which makes reviewing test quality difficult. Several tests were later commented out or removed in follow-up commits within the same PR.
 
+### Some tests committed commented out
+- **Repo**: ansible/metrics-service
+- **Commits**: c6947ce (#14)
+- **What happened**: One of the squashed commit messages is literally "Commenting out tests." Some test classes and methods were wrapped in comments or skipped to get the CI passing, with the intention of fixing them later.
+- **Insight**: Commenting out tests to get CI green is a red flag -- it hides real failures. Using `@pytest.mark.skip(reason="...")` is better because it's visible in test reports. The commented-out tests were partially restored in edb4626 (#25).
+
 ### Anonymized rollup unit tests validate aggregation logic with crafted DataFrames
 - **Repo**: ansible/metrics-utility
 - **Commits**: 6f8c0a8 (#215)
@@ -251,12 +256,6 @@
 - **Commits**: dbf6fb1 (#65)
 - **What happened**: When `DEVELOPER_MODE_ENABLED` was added (defaulting to `False`) to gate the tasks API and dashboard, `DEVELOPER_MODE_ENABLED = True` was added to `test.py` settings. Without this, all task API tests would get 403 Forbidden responses and fail.
 - **Insight**: Any new feature gate or permission check that defaults to restrictive must be explicitly enabled in test settings. Forgetting this causes mass test failures that are confusing because the tests "used to work." Adding a dedicated test for the disabled case (as was done with `test_developer_mode_permissions.py`) verifies the gate works without breaking the rest of the suite.
-
-### Some tests committed commented out
-- **Repo**: ansible/metrics-service
-- **Commits**: c6947ce (#14)
-- **What happened**: One of the squashed commit messages is literally "Commenting out tests." Some test classes and methods were wrapped in comments or skipped to get the CI passing, with the intention of fixing them later.
-- **Insight**: Commenting out tests to get CI green is a red flag -- it hides real failures. Using `@pytest.mark.skip(reason="...")` is better because it's visible in test reports. The commented-out tests were partially restored in edb4626 (#25).
 
 ### Large test reorganization for metrics collection
 - **Repo**: ansible/metrics-service

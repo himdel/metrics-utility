@@ -1,5 +1,4 @@
 # Dependencies and Packaging
-
 ### Entry point defined as console_scripts in setup.cfg
 - **Repo**: ansible/metrics-utility
 - **Commits**: 8ab89cc, 22b3072
@@ -96,6 +95,12 @@
 - **What happened**: Redis-related packages were removed from `pyproject.toml` and the `uv.lock` was updated to drop them. The cache backend was switched to Django's local memory cache for development.
 - **Insight**: Redis was carried over from the template service but never used. Removing unused dependencies reduces the attack surface and simplifies the development setup.
 
+### Version switched from hardcoded string to dynamic `importlib.metadata.version`
+- **Repo**: ansible/metrics-utility
+- **Commits**: 55b0248 (#188)
+- **What happened**: The metrics-utility version was previously hardcoded as `'0.6.1dev'` in two places: the `config` collector (embedded in config.json tarballs) and the `ManagementUtility` (for `--version` output). Both were replaced with `importlib.metadata.version('metrics-utility')`, which reads the version from the installed package metadata (ultimately from `setup.cfg`). The `pyproject.toml` was also updated to use `dynamic = ["version"]` instead of `version = "0.1.0"`, deferring to `setup.cfg` for the actual version. Additional project metadata (authors, license, classifiers, URLs, console_scripts entry point) was added to `pyproject.toml`.
+- **Insight**: Using `importlib.metadata.version()` eliminates the need to manually update version strings in code -- the single source of truth is `setup.cfg`, and the runtime reads it automatically via installed package metadata.
+
 ### sync-requirements system bridges uv and Konflux requirements
 - **Repo**: ansible/metrics-service
 - **Commits**: f848024 (#24)
@@ -107,12 +112,6 @@
 - **Commits**: edb4626 (#25)
 - **What happened**: The `metrics-utility` dependency was initially pointed at a local directory, then changed to a GitHub repository pointing at the `devel` branch, and finally pinned to a specific commit hash in `pyproject.toml`, `requirements-build.txt`, and `requirements-pinned.txt`. The commit message says "Changed pyproject.toml, requirements-build.txt, and requirements-pinned.txt to point to a specific commit of metrics-utility instead of the devel branch."
 - **Insight**: Pinning to a specific commit rather than a branch is essential for reproducible builds. A branch reference (`@devel`) means different builds at different times get different code, which can cause mysterious CI failures. The trade-off is that you need to manually bump the commit hash when you want new changes from metrics-utility.
-
-### Version switched from hardcoded string to dynamic `importlib.metadata.version`
-- **Repo**: ansible/metrics-utility
-- **Commits**: 55b0248 (#188)
-- **What happened**: The metrics-utility version was previously hardcoded as `'0.6.1dev'` in two places: the `config` collector (embedded in config.json tarballs) and the `ManagementUtility` (for `--version` output). Both were replaced with `importlib.metadata.version('metrics-utility')`, which reads the version from the installed package metadata (ultimately from `setup.cfg`). The `pyproject.toml` was also updated to use `dynamic = ["version"]` instead of `version = "0.1.0"`, deferring to `setup.cfg` for the actual version. Additional project metadata (authors, license, classifiers, URLs, console_scripts entry point) was added to `pyproject.toml`.
-- **Insight**: Using `importlib.metadata.version()` eliminates the need to manually update version strings in code -- the single source of truth is `setup.cfg`, and the runtime reads it automatically via installed package metadata.
 
 ### Python pinned to ==3.12 from >=3.11
 - **Repo**: ansible/metrics-service
@@ -144,17 +143,17 @@
 - **What happened**: The metrics-utility import path changed from `metrics_utility.library.collectors` to `metrics_utility.library.collectors.controller`. The specific collector names also changed: `anonymous` became `job_host_summary` (aliased back as `anonymous`), `job_host_summary` became `main_host`, and `host_metric` became `main_jobevent`. A TODO comment was added noting these aliases are temporary.
 - **Insight**: The metrics-utility library reorganized its public API between versions, moving from flat collector imports to controller-specific submodules. The `as` aliases maintain backward compatibility with the existing task function signatures, but this creates a confusing indirection layer where function names don't match their actual purpose.
 
-### uv removed as a runtime dependency
-- **Repo**: ansible/metrics-service
-- **Commits**: 6059d8c (#45)
-- **What happened**: `uv>=0.8.22` was removed from the main `dependencies` list in `pyproject.toml`. The `[tool.uv].dev-dependencies` section was moved to `[dependency-groups].dev` (PEP 735 format).
-- **Insight**: UV as a runtime dependency was wrong -- it's a build/development tool, not something the application needs at runtime. Moving dev dependencies from `[tool.uv].dev-dependencies` to `[dependency-groups].dev` follows the emerging PEP 735 standard, which is tool-agnostic.
-
 ### django-prometheus and segment-analytics-python added as new dependencies
 - **Repo**: ansible/metrics-service
 - **Commits**: 10581e9 (#42), e486eb4 (#41)
 - **What happened**: `django-prometheus>=2.3.1` was added for Prometheus metrics exposition, and `backoff` + `segment-analytics-python` were added (presumably for analytics data transmission with retry logic). These were added to both `pyproject.toml` and the generated requirements files.
 - **Insight**: The `segment-analytics-python` dependency signals the service will send anonymized metrics data to Segment (a customer data platform), which aligns with the `ANONYMIZATION_GROUP` tasks. The `backoff` library provides retry logic with exponential backoff for network calls.
+
+### uv removed as a runtime dependency
+- **Repo**: ansible/metrics-service
+- **Commits**: 6059d8c (#45)
+- **What happened**: `uv>=0.8.22` was removed from the main `dependencies` list in `pyproject.toml`. The `[tool.uv].dev-dependencies` section was moved to `[dependency-groups].dev` (PEP 735 format).
+- **Insight**: UV as a runtime dependency was wrong -- it's a build/development tool, not something the application needs at runtime. Moving dev dependencies from `[tool.uv].dev-dependencies` to `[dependency-groups].dev` follows the emerging PEP 735 standard, which is tool-agnostic.
 
 ### metrics-utility version pin relaxed from exact to minimum
 - **Repo**: ansible/metrics-service

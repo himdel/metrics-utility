@@ -1,7 +1,6 @@
 # metrics-utility
 
 Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
-
 ### Custom ManagementUtility replaces Django's default command discovery
 - **Repo**: ansible/metrics-utility
 - **Commits**: 8ab89cc, 22b3072, 03a5640
@@ -20,17 +19,23 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: The report system evolved to support three types: `CCSP` (original, jobhost summary data from tarballs, single managed-nodes sheet), `CCSPv2` (adds content usage from jobevents, plus end-user details for NA Direct partners), and `RENEWAL_GUIDANCE` (reads from Controller DB directly, deduplicates hosts using hardware facts, detects ephemeral hosts). Each type composes different dataframe engines and report classes via factory patterns.
 - **Insight**: The three report types serve fundamentally different audiences: CCSP for basic billing, CCSPv2 for partner (NA Direct) billing with collection/role/module details, and RENEWAL_GUIDANCE for Red Hat renewal teams needing accurate managed node counts.
 
+### pyarrow dependency removed in favor of pure pandas
+- **Repo**: ansible/metrics-utility
+- **Commits**: eeb35bd (#14)
+- **What happened**: The `pyarrow` import was removed from `extractor_directory.py` (it had already been commented out). The `setup.cfg` dependencies were cleaned up accordingly. Data reading uses `pandas` with CSV format throughout instead of Parquet.
+- **Insight**: Removing pyarrow reduced the dependency footprint significantly -- pyarrow is a large native library that was unnecessary since the pipeline uses CSV, not Parquet.
+
 ### Exit codes standardized: success=0, failure=1
 - **Repo**: ansible/metrics-utility
 - **Commits**: 34c711c (#18)
 - **What happened**: The gather command previously called `exit(0)` for both success and all error cases, and `exit(-1)` for missing AWX modules. PR #18 standardized this: `exit(0)` on success, `exit(1)` on any error (bad config, upload failure, no data collected). A `NoAnalyticsCollected` exception was added to properly signal when no data was gathered, which also triggers `exit(1)`.
 - **Insight**: Return code correctness matters for cron-based automation -- operators need `$?` to detect collection failures and trigger alerts.
 
-### pyarrow dependency removed in favor of pure pandas
+### Verbose debug output via --verbose flag and debug_utils module
 - **Repo**: ansible/metrics-utility
-- **Commits**: eeb35bd (#14)
-- **What happened**: The `pyarrow` import was removed from `extractor_directory.py` (it had already been commented out). The `setup.cfg` dependencies were cleaned up accordingly. Data reading uses `pandas` with CSV format throughout instead of Parquet.
-- **Insight**: Removing pyarrow reduced the dependency footprint significantly -- pyarrow is a large native library that was unnecessary since the pipeline uses CSV, not Parquet.
+- **Commits**: a93b6bf (#66)
+- **What happened**: A `debug_utils.py` module was added at the project root with `print_debug(text)` and `print_data(df, caption)` functions that only produce output when `--verbose` is in `sys.argv`. `print_data` drops a hardcoded list of noisy columns (timestamps, IDs, variables) before displaying dataframes with `pprint`. A `set_ccspv2_vars()` helper was also added for setting all CCSPv2 env vars programmatically (useful for IDE debugging). The debug calls were wired into the dataframe engines at key aggregation points (before/after groupby, after outer join) to trace the data pipeline.
+- **Insight**: The `--verbose` flag with strategic print points at each aggregation step makes it possible to trace billing data through the multi-stage merge pipeline without modifying code -- essential for debugging incorrect report values.
 
 ### Data generator script for creating test tarballs at scale
 - **Repo**: ansible/metrics-utility
@@ -56,11 +61,11 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: PR #112 removed the `report_renewal_guidance_v2.py` file (434 lines) that was never wired into the factory. PR #131 completed the cleanup by removing the `RENEWAL_GUIDANCEv2` branch from both the dataframe engine factory and report factory. The dataframe factory's `RENEWAL_GUIDANCEv2` branch had been using CCSP dataframe engines (jobhost summary + content usage) instead of the DB host metric engine that `RENEWAL_GUIDANCE` uses -- meaning even if someone set `REPORT_TYPE=RENEWAL_GUIDANCEv2`, the report would have received wrong data. The removal of the report factory branch was safe because it just delegated to `_get_report_renewal_guidance()` (same as regular `RENEWAL_GUIDANCE`).
 - **Insight**: Dead code that composes wrong engine types is worse than simply unused -- it could silently produce incorrect reports if accidentally activated.
 
-### Dead parquet code removed from ExtractorDirectory
+### Dev scripts use `gtime` on macOS for GNU time compatibility
 - **Repo**: ansible/metrics-utility
-- **Commits**: b487ac2 (#131)
-- **What happened**: Three methods (`mapping`, `read_parquet_file`, `read_parquet_files`) were removed from `ExtractorDirectory`. These were inherited from an S3-based extractor design and referenced `self.s3` which only exists in `S3Handler`, meaning they would crash with `AttributeError` if called. The leftover `# Read parquet in memory in batches` comment was also corrected to `# Read tarball in memory in batches`. Additionally, `logging.warn()` (deprecated) was updated to `logging.warning()`.
-- **Insight**: Methods referencing instance attributes from a different class hierarchy (`self.s3` in a non-S3 class) are guaranteed-dead code -- they would crash if called.
+- **Commits**: 38e2849 (#125)
+- **What happened**: The performance benchmarking scripts (`run-ccsp2-build`, `run-ccsp2-gather`, `run-perf`, `run-renewal`) used `/usr/bin/time --format=...` for memory/CPU/time reporting, which requires GNU time. On macOS, `/usr/bin/time` is the BSD version (no `--format`), and GNU time is installed as `gtime` via `brew install gnu-time`. The fix added `TIME=\`command -v gtime >/dev/null 2>&1 && echo 'gtime' || echo '/usr/bin/time'\`` to auto-detect and use the correct binary.
+- **Insight**: When shell scripts depend on GNU-specific tool options, use `command -v` to detect the platform-appropriate binary name rather than hardcoding a path that only works on Linux.
 
 ### build_report --until defaults to today when --since is provided
 - **Repo**: ansible/metrics-utility
@@ -68,17 +73,11 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: When `--since` was provided to `build_report` without `--until`, the report would fail or produce unexpected results because `opt_until` was `None`. The fix defaults `--until` to today (midnight UTC) when `--since` is provided but `--until` is not, with an info log message. When `--since` is absent, `--until` remains `None` (the `--month` flow handles dates differently). This only applies to the build_report command (gather already handled this differently via `_handle_datelike`).
 - **Insight**: When a command accepts a date range via `--since`/`--until`, providing a sensible default for the missing end bound (today) prevents confusing errors and matches user expectations.
 
-### Dev scripts use `gtime` on macOS for GNU time compatibility
+### Dead parquet code removed from ExtractorDirectory
 - **Repo**: ansible/metrics-utility
-- **Commits**: 38e2849 (#125)
-- **What happened**: The performance benchmarking scripts (`run-ccsp2-build`, `run-ccsp2-gather`, `run-perf`, `run-renewal`) used `/usr/bin/time --format=...` for memory/CPU/time reporting, which requires GNU time. On macOS, `/usr/bin/time` is the BSD version (no `--format`), and GNU time is installed as `gtime` via `brew install gnu-time`. The fix added `TIME=\`command -v gtime >/dev/null 2>&1 && echo 'gtime' || echo '/usr/bin/time'\`` to auto-detect and use the correct binary.
-- **Insight**: When shell scripts depend on GNU-specific tool options, use `command -v` to detect the platform-appropriate binary name rather than hardcoding a path that only works on Linux.
-
-### Verbose debug output via --verbose flag and debug_utils module
-- **Repo**: ansible/metrics-utility
-- **Commits**: a93b6bf (#66)
-- **What happened**: A `debug_utils.py` module was added at the project root with `print_debug(text)` and `print_data(df, caption)` functions that only produce output when `--verbose` is in `sys.argv`. `print_data` drops a hardcoded list of noisy columns (timestamps, IDs, variables) before displaying dataframes with `pprint`. A `set_ccspv2_vars()` helper was also added for setting all CCSPv2 env vars programmatically (useful for IDE debugging). The debug calls were wired into the dataframe engines at key aggregation points (before/after groupby, after outer join) to trace the data pipeline.
-- **Insight**: The `--verbose` flag with strategic print points at each aggregation step makes it possible to trace billing data through the multi-stage merge pipeline without modifying code -- essential for debugging incorrect report values.
+- **Commits**: b487ac2 (#131)
+- **What happened**: Three methods (`mapping`, `read_parquet_file`, `read_parquet_files`) were removed from `ExtractorDirectory`. These were inherited from an S3-based extractor design and referenced `self.s3` which only exists in `S3Handler`, meaning they would crash with `AttributeError` if called. The leftover `# Read parquet in memory in batches` comment was also corrected to `# Read tarball in memory in batches`. Additionally, `logging.warn()` (deprecated) was updated to `logging.warning()`.
+- **Insight**: Methods referencing instance attributes from a different class hierarchy (`self.s3` in a non-S3 class) are guaranteed-dead code -- they would crash if called.
 
 ### MetricsException base class unifies all custom exceptions
 - **Repo**: ansible/metrics-utility
@@ -128,6 +127,12 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: The `library/instants.py` module was redesigned from simple "N units ago from now" functions to period-boundary-aware helpers. Previous functions like `last_day()`, `last_week()` just subtracted timedeltas from `now()`. The new versions: (1) `this_*()` functions return the *start* of the current period (e.g., `this_hour()` returns current hour with minutes/seconds zeroed). (2) `last_*()` functions return the start of the *previous* period relative to an optional `relative_to` parameter (defaulting to the corresponding `this_*()` boundary). (3) `*_ago(n)` functions subtract N periods from the boundary. (4) `last_month()` and `months_ago()` handle year boundaries correctly using total-months arithmetic. (5) An `iso()` helper was added for datetime-to-string conversion. The debug logging was removed entirely.
 - **Insight**: Period-boundary-aware datetime helpers (truncating to start-of-hour/day/week/month) are essential for billing and metrics collection where time ranges must align to period boundaries -- raw timedelta subtraction from `now()` produces non-aligned timestamps that cause off-by-one errors in aggregation.
 
+### `anonymized_rollups/__init__.py` and `library/anonymize/` added as package entry points
+- **Repo**: ansible/metrics-utility
+- **Commits**: dbb7426 (#278)
+- **What happened**: The `metrics_utility/anonymized_rollups/` package received an `__init__.py` with explicit `__all__` exports for all rollup classes and functions. A new `metrics_utility/library/anonymize/` package was added with an `anonymized_rollups_processor()` function that wraps `compute_anonymized_rollup()` -- this provides a clean library-level entry point for the metrics service to call anonymized rollup processing without importing CLI-specific code.
+- **Insight**: Adding a library-level wrapper (`library.anonymize.anonymized_rollups_processor`) around the CLI-level rollup code follows the library's design principle of exposing a simple, parameter-driven API that the external service can call without knowing about the internal module structure.
+
 ### Library `tempdir` utility: timestamped names, cleanup control, and auto-cwd
 - **Repo**: ansible/metrics-utility
 - **Commits**: a1b2e88 (#280)
@@ -157,9 +162,3 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **Commits**: 7db682c (#357)
 - **What happened**: The `metrics_utility/library/anonymize/` package (which had `anonymized_rollups_processor.py` and `compute_from_raw_data.py` re-exporting CLI-side functions) was removed entirely. These re-exports had been added in #278 and #305 to provide library-level entry points for the metrics service, but the production code path no longer uses them -- the service calls the rollup functions directly.
 - **Insight**: Re-export modules that exist solely to provide a "nicer" import path add maintenance burden without value if no external consumer uses that path -- remove them when the actual call sites are identified.
-
-### `anonymized_rollups/__init__.py` and `library/anonymize/` added as package entry points
-- **Repo**: ansible/metrics-utility
-- **Commits**: dbb7426 (#278)
-- **What happened**: The `metrics_utility/anonymized_rollups/` package received an `__init__.py` with explicit `__all__` exports for all rollup classes and functions. A new `metrics_utility/library/anonymize/` package was added with an `anonymized_rollups_processor()` function that wraps `compute_anonymized_rollup()` -- this provides a clean library-level entry point for the metrics service to call anonymized rollup processing without importing CLI-specific code.
-- **Insight**: Adding a library-level wrapper (`library.anonymize.anonymized_rollups_processor`) around the CLI-level rollup code follows the library's design principle of exposing a simple, parameter-driven API that the external service can call without knowing about the internal module structure.

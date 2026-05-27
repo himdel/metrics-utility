@@ -3,16 +3,15 @@
 > Default repo: metrics-service
 
 ## Learnings
+### System auditor field added via dedicated migration
+- **Commits**: fd6745d (#10)
+- **What happened**: Migration `0004_add_is_system_auditor.py` added a `is_system_auditor` BooleanField (default False) to the User model. A separate migration `0005_user_organization.py` added a ForeignKey from User to Organization. These were kept as separate migrations rather than squashed.
+- **Insight**: Keeping schema changes as small, focused migrations (one field per migration) is the Django convention. It makes rollbacks safer and debugging easier. The `is_system_auditor` field is a simple boolean rather than using Django's groups/permissions system, which is pragmatic for a service with just two special roles (superuser and auditor).
 
 ### Migration history was rewritten to clean up task model evolution
 - **Commits**: c6947ce (#14)
 - **What happened**: The task model went through several iterations (adding fields, then removing them) during the core-to-tasks extraction. Migration 0006 (which removed fields from the Task model) was deleted, and migration 0004's dependency was updated to reference the initial migration instead of a later one. The Task model was recreated as a fresh `0001_initial.py` in `apps/tasks/migrations/`.
 - **Insight**: Rewriting migration history during development is acceptable before a service is in production, but it means anyone who ran the old migrations needs to reset their database. The team chose a clean migration chain over preserving upgrade path from the early experimental state.
-
-### System auditor field added via dedicated migration
-- **Commits**: fd6745d (#10)
-- **What happened**: Migration `0004_add_is_system_auditor.py` added a `is_system_auditor` BooleanField (default False) to the User model. A separate migration `0005_user_organization.py` added a ForeignKey from User to Organization. These were kept as separate migrations rather than squashed.
-- **Insight**: Keeping schema changes as small, focused migrations (one field per migration) is the Django convention. It makes rollbacks safer and debugging easier. The `is_system_auditor` field is a simple boolean rather than using Django's groups/permissions system, which is pragmatic for a service with just two special roles (superuser and auditor).
 
 ### is_system_task flag added to Task model
 - **Commits**: edb4626 (#25)
@@ -54,15 +53,15 @@
 - **What happened**: Seven migrations (0002 through 0008) were deleted and folded into a rewritten `0001_initial.py`. The squashed migration includes all models as of March 2026: `Task`, `TaskExecution`, `HourlyMetricsCollection` (with expanded `COLLECTOR_TYPE_CHOICES` including `controller_version` and `table_metadata`), `DailyMetricsSummary`, and `AnonymizedMetricsPayload`. The PR description notes that `squashmigrations` output was breaking, so they used `rm` + `makemigrations` instead.
 - **Insight**: This is the third migration rewrite for the tasks app (first in #14, second in #73, third here). The `squashmigrations` command produces migrations with `RunSQL` and `RunPython` operations that can be fragile. The delete-and-regenerate approach is simpler and works because the service hasn't reached production yet. Each rewrite requires all developers to recreate their databases (`pytest --create-db`).
 
-### AnonymizedMetricsPayload gained new status choices and unique constraint
-- **Commits**: 4e2a18e (#175)
-- **What happened**: Two new migrations were added: one altering `AnonymizedMetricsPayload.status` to add `"unavailable"` and `"failed"` choices (distinguishing between config issues and actual send errors), and another adding a unique constraint on active payloads per daily summary to prevent duplicate payload creation.
-- **Insight**: Adding status choices via migration is necessary because Django validates field choices at the model level. The `"unavailable"` status (Segment not configured) vs `"failed"` (actual send error) distinction enables the health check to differentiate between configuration issues and service failures.
-
 ### close_old_connections() needed for scheduler database access
 - **Commits**: 59a6366 (#158)
 - **What happened**: The `UnifiedTaskScheduler` added `close_old_connections()` calls before any ORM access in its three main methods. Without this, APScheduler threads could hold stale database connections that had been closed server-side during idle periods.
 - **Insight**: Django's request/response cycle handles connection cleanup automatically, but long-lived threads must call `close_old_connections()` before each ORM access batch. This is a well-known Django pattern for background workers but easy to forget.
+
+### AnonymizedMetricsPayload gained new status choices and unique constraint
+- **Commits**: 4e2a18e (#175)
+- **What happened**: Two new migrations were added: one altering `AnonymizedMetricsPayload.status` to add `"unavailable"` and `"failed"` choices (distinguishing between config issues and actual send errors), and another adding a unique constraint on active payloads per daily summary to prevent duplicate payload creation.
+- **Insight**: Adding status choices via migration is necessary because Django validates field choices at the model level. The `"unavailable"` status (Segment not configured) vs `"failed"` (actual send error) distinction enables the health check to differentiate between configuration issues and service failures.
 
 ### Never manually close Django's singleton database connection -- let Django manage lifecycle
 - **Commits**: 258547a (#194)

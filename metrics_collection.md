@@ -1,5 +1,4 @@
 # Metrics Collection
-
 ### Initial host_metric command used raw SQL, replaced by ORM in second commit
 - **Repo**: ansible/metrics-utility
 - **Commits**: 8ab89cc, 22b3072
@@ -72,17 +71,17 @@
 - **What happened**: The `main_host` collector SQL was expanded to collect significantly more ansible facts: `ansible_host` (from host variables), `host_name`, `ansible_port` (with integer validation), `ansible_virtualization_type`, `ansible_virtualization_role`, `ansible_system_vendor`, `ansible_product_name`, `ansible_architecture`, `ansible_processor`, `ansible_form_factor`, `ansible_bios_vendor`, `ansible_bios_version`, and `ansible_board_serial`. The `compute_serial` function was made safer by using `.get()` instead of direct dict access for `ansible_product_serial` and `ansible_machine_id`, preventing `KeyError` when fact keys are missing. A `host_names_before_dedup` column was added to track original hostnames when dedup is enabled.
 - **Insight**: Collecting additional hardware and system facts enables more sophisticated deduplication strategies and provides richer infrastructure visibility in reports -- but the collector SQL must use safe access patterns (`.get()`) since any fact key may be absent on any given host.
 
-### `total_workers_vcpu` JSON collector switched from Kubernetes API to Prometheus
-- **Repo**: ansible/metrics-utility
-- **Commits**: 429816e (#165), 0be6cd0 (#198)
-- **What happened**: A `total_workers_vcpu` collector was added as the first JSON-format collector for SaaS vCPU counting. It is gated by `'total_workers_vcpu' in get_optional_collectors()` and uses `limit_slicing`. Originally (#165), when `METRICS_UTILITY_USAGE_BASED_BILLING_ENABLED` was `true`, it used the `kubernetes` Python library to query `CoreV1Api.list_node()` and sum CPU capacity across nodes. In #198, this was replaced with Prometheus PromQL queries: the collector now uses a `PrometheusClient` (authenticated via Kubernetes service account token) to query `max_over_time(sum(machine_cpu_cores)[59m59s:5m])` for the previous hour. The env var was also renamed from `METRICS_UTILITY_USAGE_BASED_BILLING_ENABLED` to `METRICS_UTILITY_USAGE_BASED_METERING_ENABLED`. A new `METRICS_UTILITY_PROMETHEUS_URL` env var was added (defaults to the in-cluster OpenShift monitoring endpoint). The collector also now records a CPU timeline (5-minute intervals) for the previous hour in the output JSON. A `KubernetesClient` class was extracted for service account token retrieval and CA cert path handling.
-- **Insight**: Prometheus provides historical vCPU data with time-series granularity (previous hour's max), while the Kubernetes API only provides instantaneous values -- Prometheus is the better data source when you need representative billing data that isn't sensitive to momentary fluctuations. **Supersedes** the Kubernetes API approach from #165.
-
 ### Progress logging now skips disabled collectors instead of logging all
 - **Repo**: ansible/metrics-utility
 - **Commits**: f15bd74 (#185)
 - **What happened**: The base `Collector._gather_csv_collections()` previously logged `Progress info: Now gathering {collection.key}` for every registered collector, even disabled ones. The fix checks whether each collector is enabled (via `get_optional_collectors()` and `METRICS_UTILITY_DISABLE_JOB_HOST_SUMMARY_COLLECTOR`) and logs either "Now gathering" or "Skipping {key} because it is not enabled" accordingly. The destination path is now also logged at debug level in `PackageDirectory` and `PackageS3` after successful shipping.
 - **Insight**: Progress logging should distinguish between enabled and disabled collectors -- logging "Now gathering X" for a disabled collector is misleading and makes operators think data collection is happening when it is not.
+
+### `total_workers_vcpu` JSON collector switched from Kubernetes API to Prometheus
+- **Repo**: ansible/metrics-utility
+- **Commits**: 429816e (#165), 0be6cd0 (#198)
+- **What happened**: A `total_workers_vcpu` collector was added as the first JSON-format collector for SaaS vCPU counting. It is gated by `'total_workers_vcpu' in get_optional_collectors()` and uses `limit_slicing`. Originally (#165), when `METRICS_UTILITY_USAGE_BASED_BILLING_ENABLED` was `true`, it used the `kubernetes` Python library to query `CoreV1Api.list_node()` and sum CPU capacity across nodes. In #198, this was replaced with Prometheus PromQL queries: the collector now uses a `PrometheusClient` (authenticated via Kubernetes service account token) to query `max_over_time(sum(machine_cpu_cores)[59m59s:5m])` for the previous hour. The env var was also renamed from `METRICS_UTILITY_USAGE_BASED_BILLING_ENABLED` to `METRICS_UTILITY_USAGE_BASED_METERING_ENABLED`. A new `METRICS_UTILITY_PROMETHEUS_URL` env var was added (defaults to the in-cluster OpenShift monitoring endpoint). The collector also now records a CPU timeline (5-minute intervals) for the previous hour in the output JSON. A `KubernetesClient` class was extracted for service account token retrieval and CA cert path handling.
+- **Insight**: Prometheus provides historical vCPU data with time-series granularity (previous hour's max), while the Kubernetes API only provides instantaneous values -- Prometheus is the better data source when you need representative billing data that isn't sensitive to momentary fluctuations. **Supersedes** the Kubernetes API approach from #165.
 
 ### Service-oriented collectors filter by job.finished instead of jobhostsummary.modified
 - **Repo**: ansible/metrics-utility
@@ -136,6 +135,12 @@
   In #124, the `controller_version_service` and `table_metadata` collectors (partially added in #112) were completed by adding them to the `HourlyMetricsCollection.COLLECTOR_TYPE_CHOICES` model field (with a migration), and adding example entries to the `TASK_METADATA` for `collect_snapshot_metrics`.
 - **Insight**: The switch from `job_host_summary` to `job_host_summary_service` variant was for partition pruning optimization in the AWX database. The `_service` variants use table partitioning to query only relevant data, significantly reducing query time for large deployments. Adding new collector types requires changes in multiple places: the registry, the model choices (with migration), the task groups schedule, and the task metadata examples. Missing any one of these (as happened with #112 missing the migration and examples) causes partial functionality.
 
+### Anonymization passes 4 rollup types plus empty events_modules
+- **Repo**: ansible/metrics-service
+- **Commits**: 1580ff2 (#109), 05dc0c9 (#112)
+- **What happened**: The `daily_anonymize_and_prepare` task extracts rollups from `DailyMetricsSummary` and passes them to `anonymize_rollups()` as named parameters: `jobs_rollup` (unified_jobs), `job_host_summary_rollup` (job_host_summary_service), `credentials_rollup` (credentials_service), `table_metadata_rollup` (table_metadata), `controller_version_rollup` (controller_version_service), plus `config_data` and a `salt` for anonymization. An empty dict is passed for `events_modules_rollup` since main_jobevent is disabled.
+- **Insight**: The anonymization API (`anonymize_rollups()`) comes from the metrics-utility library. The service is responsible for collecting and rolling up the data; the library handles the anonymization logic. Keeping these responsibilities separate means the service doesn't need to know anonymization details, and the library doesn't need to know about scheduling or storage.
+
 ### `table_metadata` and `controller_version_service` collectors added for infrastructure telemetry
 - **Repo**: ansible/metrics-utility
 - **Commits**: 3d86b71 (#328), c225bdf (#329)
@@ -148,29 +153,11 @@
 - **What happened**: The anonymized rollup pipeline was updated to handle the case where event collectors (`main_jobevent_service`) are disabled or produce no data. When events data is empty, event-related fields (`module_stats`, `collection_name_stats`, `modules_used_per_playbook_total`, warnings/deprecations counts) are omitted from the final JSON rather than being populated with zeros or empty structures. The `flatten_json_report()` function checks for empty events data and conditionally includes event-derived statistics. A `test_all_no_events.py` test validates the complete rollup pipeline with events disabled.
 - **Insight**: Supporting the no-events case is important because events collection is the most expensive collector (querying the potentially huge `main_jobevent` table) and some deployments disable it via `METRICS_UTILITY_OPTIONAL_COLLECTORS` -- the rollup pipeline must produce valid output with the remaining data rather than crashing on missing fields.
 
-### Anonymization passes 4 rollup types plus empty events_modules
-- **Repo**: ansible/metrics-service
-- **Commits**: 1580ff2 (#109), 05dc0c9 (#112)
-- **What happened**: The `daily_anonymize_and_prepare` task extracts rollups from `DailyMetricsSummary` and passes them to `anonymize_rollups()` as named parameters: `jobs_rollup` (unified_jobs), `job_host_summary_rollup` (job_host_summary_service), `credentials_rollup` (credentials_service), `table_metadata_rollup` (table_metadata), `controller_version_rollup` (controller_version_service), plus `config_data` and a `salt` for anonymization. An empty dict is passed for `events_modules_rollup` since main_jobevent is disabled.
-- **Insight**: The anonymization API (`anonymize_rollups()`) comes from the metrics-utility library. The service is responsible for collecting and rolling up the data; the library handles the anonymization logic. Keeping these responsibilities separate means the service doesn't need to know anonymization details, and the library doesn't need to know about scheduling or storage.
-
 ### Dashboard jobs collector: structured dict output for metrics-service API
 - **Repo**: ansible/metrics-utility
 - **Commits**: 5b26fc3 (#341)
 - **What happened**: A `dashboard_jobs` collector was added under `library/collectors/dashboard/` that returns `{'count': int, 'results': [AWXJobType]}` -- a paginated-style response designed for direct API consumption. Each job result includes nested `labels` (list of label IDs) and `host_summaries` (list of `{id, host_name, host_id}` dicts) collected via separate sub-queries. The SQL WHERE clause filters by `uj.modified` (not `uj.finished`), excludes `sync` jobs, and includes only `failed`/`successful` status. The collector uses `%s` parameterized placeholders (via a shared `get_where_clause` function) rather than f-string interpolation.
 - **Insight**: The dashboard collector uses `modified` as the time boundary (not `finished` like service collectors or `created` like indirect nodes) because dashboard consumers want to see the most recently updated jobs, including jobs whose metadata changed after completion.
-
-### Anonymization pipeline fixups: config handling, Segment metadata, debug tooling
-- **Repo**: ansible/metrics-service
-- **Commits**: 26614c4 (#113)
-- **What happened**: Multiple fixes to the anonymization data flow: (1) `config` data was being mixed into the anonymized payload instead of only staying in the DB -- detached so the config collection ID doesn't get associated with the daily rollup. The `daily_anonymize_and_prepare` function no longer adds `config` to the anonymized data (it was already in the daily summary). (2) `daily_metrics_rollup` now pops `config` from `collections_by_type` before merging, handling it separately. (3) `collect_snapshot_metrics` gained an optional `collection_timestamp` parameter for debugging (overrides the default yesterday-23:00). (4) `send_to_segment` was moved from `utils.py` to `send_anonymized_to_segment.py` and enhanced with `segment_meta` parameter for `timestamp` and `message_id` metadata. (5) The date was dropped from the Segment event name (was `"Controller Metrics Daily Rollup 2026-03-18"`, now just `"Controller Metrics Daily Rollup"`). (6) Debug scripts were added under `tools/tasks/`: `run_anon.sh` runs the full anonymized workflow (24x hourly, snapshot, rollup, anonymize, send), `dump_hourly.py` and `dump_daily_anonymized.py` dump data for inspection.
-- **Insight**: The config data leak into payloads was a subtle bug -- config was supposed to be stored in the DB for the daily summary but not transmitted in the anonymized payload. The debug tooling (`run_anon.sh` with dump scripts) is valuable for end-to-end pipeline testing without a real deployment. Removing the date from the event name makes Segment event analysis easier (events group by name, not by date).
-
-### Segment integration: send_to_segment moved and enhanced with metadata
-- **Repo**: ansible/metrics-service
-- **Commits**: 26614c4 (#113), 4b078d3 (#147)
-- **What happened**: The `send_to_segment()` function was moved from `apps/tasks/utils.py` to `apps/tasks/collectors/send_anonymized_to_segment.py` (collocated with its only caller). It gained a `segment_meta` parameter that passes `timestamp` and `message_id` to `StorageSegment.put()`. The message_id uses `str(payload.created)` which is hashed on the Segment side with the chunk index. In #147, `SEGMENT_TEST_MODE` was added to conditionally append `"_Test"` to event names.
-- **Insight**: Moving `send_to_segment` out of the general utils into the specific module that uses it follows the principle of colocation. The `segment_meta` with timestamp and message_id enables idempotent delivery and deduplication on the analytics side.
 
 ### `controller_version_service` restricted to control/hybrid nodes
 - **Repo**: ansible/metrics-utility
@@ -183,6 +170,18 @@
 - **Commits**: b7037cf (#350)
 - **What happened**: The `unified_jobs` collector gained a new `main_unifiedjob.execution_environment_id` column in its SELECT. This integer ID is used downstream by `JobsAnonymizedRollup._get_collection_cache_key()` as a stable cache key for parsed installed collections data -- all jobs sharing the same execution environment have identical installed collections, so the EE ID avoids redundant JSON parsing. The test data was also updated with actual `execution_environment_image` values.
 - **Insight**: Adding a foreign key ID column to a collector can dramatically improve downstream processing performance -- using it as a cache key is both faster (integer comparison vs string hashing) and more reliable (stable ID vs non-deterministic JSON serialization order) than hashing the payload.
+
+### Anonymization pipeline fixups: config handling, Segment metadata, debug tooling
+- **Repo**: ansible/metrics-service
+- **Commits**: 26614c4 (#113)
+- **What happened**: Multiple fixes to the anonymization data flow: (1) `config` data was being mixed into the anonymized payload instead of only staying in the DB -- detached so the config collection ID doesn't get associated with the daily rollup. The `daily_anonymize_and_prepare` function no longer adds `config` to the anonymized data (it was already in the daily summary). (2) `daily_metrics_rollup` now pops `config` from `collections_by_type` before merging, handling it separately. (3) `collect_snapshot_metrics` gained an optional `collection_timestamp` parameter for debugging (overrides the default yesterday-23:00). (4) `send_to_segment` was moved from `utils.py` to `send_anonymized_to_segment.py` and enhanced with `segment_meta` parameter for `timestamp` and `message_id` metadata. (5) The date was dropped from the Segment event name (was `"Controller Metrics Daily Rollup 2026-03-18"`, now just `"Controller Metrics Daily Rollup"`). (6) Debug scripts were added under `tools/tasks/`: `run_anon.sh` runs the full anonymized workflow (24x hourly, snapshot, rollup, anonymize, send), `dump_hourly.py` and `dump_daily_anonymized.py` dump data for inspection.
+- **Insight**: The config data leak into payloads was a subtle bug -- config was supposed to be stored in the DB for the daily summary but not transmitted in the anonymized payload. The debug tooling (`run_anon.sh` with dump scripts) is valuable for end-to-end pipeline testing without a real deployment. Removing the date from the event name makes Segment event analysis easier (events group by name, not by date).
+
+### Segment integration: send_to_segment moved and enhanced with metadata
+- **Repo**: ansible/metrics-service
+- **Commits**: 26614c4 (#113), 4b078d3 (#147)
+- **What happened**: The `send_to_segment()` function was moved from `apps/tasks/utils.py` to `apps/tasks/collectors/send_anonymized_to_segment.py` (collocated with its only caller). It gained a `segment_meta` parameter that passes `timestamp` and `message_id` to `StorageSegment.put()`. The message_id uses `str(payload.created)` which is hashed on the Segment side with the chunk index. In #147, `SEGMENT_TEST_MODE` was added to conditionally append `"_Test"` to event names.
+- **Insight**: Moving `send_to_segment` out of the general utils into the specific module that uses it follows the principle of colocation. The `segment_meta` with timestamp and message_id enables idempotent delivery and deduplication on the analytics side.
 
 ### All collectors unified on `date_where()` for SQL date interpolation
 - **Repo**: ansible/metrics-utility
@@ -250,11 +249,11 @@
 - **What happened**: The `send_to_segment` function was passing `use_bulk=data_size > 24 * 1024` to `StorageSegment()` to enable bulk mode for large payloads (>24KB). This was removed because the target Segment instance does not support bulk mode. The corresponding test (`test_send_to_segment_bulk_mode`) was also deleted.
 - **Insight**: Feature flags and conditional behavior for external service capabilities should be validated against the actual target service early. The bulk mode was added speculatively but never worked in practice.
 
-### `unified_jobs_dashboard` collector and batched backfill for dashboard_jobs
-- **Repo**: ansible/metrics-utility
-- **Commits**: b36d893 (#392)
-- **What happened**: A `unified_jobs_dashboard` collector was added that extends `unified_jobs` with dashboard-specific fields: `project_id`, `project_name`, `launched_by_id/username` (from `auth_user` join), `label_ids` (via `STRING_AGG` subquery), and `num_hosts` (via `COUNT` subquery). The `dashboard_jobs` collector gained cursor-based pagination support via optional `after_id` and `batch_size` parameters for incremental backfill. New query helpers (`get_min_max_job_id_query`, `get_jobs_batch_query`, `get_job_labels_for_ids_query`, `get_job_host_summaries_for_ids_query`) enable the batched path. A `_JOBS_BASE_SQL` constant was extracted to share the SELECT/JOIN fragment between `get_jobs_query` and `get_jobs_batch_query`, preventing schema drift between the two paths. Partial batch args (`after_id` without `batch_size` or vice versa) now raise `ValueError` instead of silently falling back to full-window queries.
-- **Insight**: When adding a batched/paginated variant of an existing query, extract the shared SQL fragment into a constant (`_JOBS_BASE_SQL`) -- otherwise the two paths drift apart when columns are added, causing the dict-building loop to produce different schemas silently.
+### Segment send jitter changed from deterministic (service_id-seeded) to truly random
+- **Repo**: ansible/metrics-service
+- **Commits**: f7e2265 (#201)
+- **What happened**: The `daily_anonymize_and_prepare` task previously computed the jitter offset for `send_anonymized_to_segment` scheduling using `random.Random(seed)` where the seed was derived from `service_id()` (installation UUID). This meant the same installation always sent data at the same time each day, which leaked identifiable timing information. Changed to `random.randint(1, 240)` (truly random per invocation, offset shifted to 1-240 to prevent scheduling in the past). A `random_offset()` function was extracted for testability, with a test verifying the offset is independent of the installation UUID. The test now freezes `timezone.now()` to avoid flaky scheduled_time assertions.
+- **Insight**: Deterministic jitter (seeded by a stable identifier) is good for spreading server load but bad when the timing itself becomes a fingerprint. If the same customer always sends at the same time, that time becomes an identifier. Truly random jitter per invocation eliminates the timing correlation while still achieving the load-spreading goal.
 
 ### Anonymization salt parameter removed -- dead code
 - **Repo**: ansible/metrics-service
@@ -262,11 +261,11 @@
 - **What happened**: The `salt` parameter was removed from `daily_anonymize_and_prepare()`. Previously, the function accepted an optional `salt` kwarg (auto-generated via `generate_salt()` if not provided) and passed it to `anonymize_rollups()`. The salt was also removed from the `TASK_METADATA` examples and the test fixture `mock_anonymize_rollups`. The corresponding `generate_salt()` import remained (used elsewhere for `user_id`). The docstring and module-level comment about "salt-based hashing" were updated. Also, `logger.error(f"...")` was changed to `logger.exception(...)` for better traceback capture.
 - **Insight**: The salt was removed from the metrics-utility library's `anonymize_rollups()` API first (PR #399 in metrics-utility), and this service-side change followed to clean up the now-dead parameter. When a library removes a parameter, all callers must be updated simultaneously to avoid runtime errors.
 
-### Segment send jitter changed from deterministic (service_id-seeded) to truly random
-- **Repo**: ansible/metrics-service
-- **Commits**: f7e2265 (#201)
-- **What happened**: The `daily_anonymize_and_prepare` task previously computed the jitter offset for `send_anonymized_to_segment` scheduling using `random.Random(seed)` where the seed was derived from `service_id()` (installation UUID). This meant the same installation always sent data at the same time each day, which leaked identifiable timing information. Changed to `random.randint(1, 240)` (truly random per invocation, offset shifted to 1-240 to prevent scheduling in the past). A `random_offset()` function was extracted for testability, with a test verifying the offset is independent of the installation UUID. The test now freezes `timezone.now()` to avoid flaky scheduled_time assertions.
-- **Insight**: Deterministic jitter (seeded by a stable identifier) is good for spreading server load but bad when the timing itself becomes a fingerprint. If the same customer always sends at the same time, that time becomes an identifier. Truly random jitter per invocation eliminates the timing correlation while still achieving the load-spreading goal.
+### `unified_jobs_dashboard` collector and batched backfill for dashboard_jobs
+- **Repo**: ansible/metrics-utility
+- **Commits**: b36d893 (#392)
+- **What happened**: A `unified_jobs_dashboard` collector was added that extends `unified_jobs` with dashboard-specific fields: `project_id`, `project_name`, `launched_by_id/username` (from `auth_user` join), `label_ids` (via `STRING_AGG` subquery), and `num_hosts` (via `COUNT` subquery). The `dashboard_jobs` collector gained cursor-based pagination support via optional `after_id` and `batch_size` parameters for incremental backfill. New query helpers (`get_min_max_job_id_query`, `get_jobs_batch_query`, `get_job_labels_for_ids_query`, `get_job_host_summaries_for_ids_query`) enable the batched path. A `_JOBS_BASE_SQL` constant was extracted to share the SELECT/JOIN fragment between `get_jobs_query` and `get_jobs_batch_query`, preventing schema drift between the two paths. Partial batch args (`after_id` without `batch_size` or vice versa) now raise `ValueError` instead of silently falling back to full-window queries.
+- **Insight**: When adding a batched/paginated variant of an existing query, extract the shared SQL fragment into a constant (`_JOBS_BASE_SQL`) -- otherwise the two paths drift apart when columns are added, causing the dict-building loop to produce different schemas silently.
 
 ## Superseded / Semi-Obsolete
 

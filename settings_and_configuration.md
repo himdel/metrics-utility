@@ -1,5 +1,4 @@
 # Settings and Configuration
-
 ### AWX_PATH env var for locating Controller modules
 - **Repo**: ansible/metrics-utility
 - **Commits**: 1b95f39, 03a5640
@@ -186,17 +185,17 @@
 - **What happened**: The `metrics_service/settings/development.py` file was deleted in cb58dc0 as part of "consolidating settings," then recreated in the same commit's later squashed commits, then deleted and recreated again in c6947ce. In da91648, it was refactored from using `from .defaults import *` (wildcard import) to explicitly importing each setting by name from `defaults`.
 - **Insight**: The wildcard import (`from .defaults import *`) was flagged by Sonar as a code quality issue, leading to the explicit import pattern. However, explicitly listing 20+ settings is verbose and fragile -- any new setting in `defaults.py` must be manually added to `development.py`. This was likely later resolved by Dynaconf's layering.
 
-### Redis removed as a dependency for development
-- **Repo**: ansible/metrics-service
-- **Commits**: d85322e (#18)
-- **What happened**: Redis cache configuration was removed from the development settings. The cache backend was switched to Django's local memory cache (`django.core.cache.backends.locmem.LocMemCache`) for development. Redis references were removed from docker-compose, `.env.example`, and settings files.
-- **Insight**: Redis was premature infrastructure for the development environment. The service doesn't currently use caching in a way that requires Redis, and removing it reduces the setup burden for developers. Redis can be re-added when actually needed.
-
 ### New service collectors added to VALID_COLLECTORS
 - **Repo**: ansible/metrics-utility
 - **Commits**: 0c851b4 (#214)
 - **What happened**: Four new collector names were added to `VALID_COLLECTORS` in `validation.py`: `unified_jobs`, `job_host_summary_service`, `main_jobevent_service`, and `execution_environments`. These are gated by `METRICS_UTILITY_OPTIONAL_COLLECTORS` like all other optional collectors and are intended for the metrics service use case (anonymized aggregations).
 - **Insight**: Every new optional collector requires an entry in `VALID_COLLECTORS` in validation.py -- the env var validation rejects unknown collector names to catch typos early.
+
+### Redis removed as a dependency for development
+- **Repo**: ansible/metrics-service
+- **Commits**: d85322e (#18)
+- **What happened**: Redis cache configuration was removed from the development settings. The cache backend was switched to Django's local memory cache (`django.core.cache.backends.locmem.LocMemCache`) for development. Redis references were removed from docker-compose, `.env.example`, and settings files.
+- **Insight**: Redis was premature infrastructure for the development environment. The service doesn't currently use caching in a way that requires Redis, and removing it reduces the setup burden for developers. Redis can be re-added when actually needed.
 
 ### Dynaconf integration replaced split_settings in a two-phase rollout
 - **Repo**: ansible/metrics-service
@@ -228,6 +227,12 @@
 - **What happened**: `.env.example` changed database env vars from flat naming (`METRICS_SERVICE_DB_HOST`, `METRICS_SERVICE_DB_PORT`) to Dynaconf nested dunder notation (`METRICS_SERVICE_DATABASES__default__HOST`, `METRICS_SERVICE_DATABASES__default__PORT`). Port default also changed from 55432 to 5432.
 - **Insight**: Dunder notation (`__`) lets Dynaconf automatically build nested dicts that Django expects for `DATABASES`. The flat `DB_HOST` style required custom parsing code; dunder notation eliminates that entirely. However, the env var names are now longer and harder to type.
 
+### METRICS_UTILITY_OPTIONAL_COLLECTORS empty string removed from VALID_COLLECTORS, parsed with filter(bool)
+- **Repo**: ansible/metrics-utility
+- **Commits**: aafd74c (#263)
+- **What happened**: The earlier fix (#178) handled empty/whitespace `METRICS_UTILITY_OPTIONAL_COLLECTORS` by adding `''` to `VALID_COLLECTORS`. This was replaced with a cleaner approach: `get_optional_collectors()` now strips whitespace and uses `filter(bool, ...)` to remove empty strings after splitting by comma. The validation in `validation.py` similarly strips and checks for empty before splitting. This eliminates the magic empty string from the valid set.
+- **Insight**: Rather than adding empty string as a "valid" sentinel value, use `filter(bool, s.split(','))` to cleanly handle the empty/whitespace case -- this removes the need for any special case in the valid values set. **Supersedes** the empty string workaround from #178.
+
 ### FEATURE_FLAGS renamed to FEATURE_ENABLED to avoid AAP naming conflict
 - **Repo**: ansible/metrics-service
 - **Commits**: c8e5f0d (#36)
@@ -239,12 +244,6 @@
 - **Commits**: c8e5f0d (#36)
 - **What happened**: The `task_groups.py` module added `get_feature_enabled_from_db()` which queries the `Setting` model first, then falls back to `getattr(settings, "FEATURE_ENABLED", {})`. The enable/disable functions (`enable_task_group`, `disable_task_group`) were changed from placeholder stubs ("Would enable task group") to real implementations that create/update `Setting` DB rows with `get_or_create()`. A `set_feature_enabled()` helper and `get_feature_enabled_status()` reporting function were also added.
 - **Insight**: The DB-first-with-settings-fallback pattern means feature toggles can be changed at runtime via API without restart, but still have sane defaults from `settings.py` for fresh deployments. The `get_feature_enabled_status()` function reports the source (database/django_settings/default) for each toggle, which is valuable for debugging.
-
-### METRICS_UTILITY_OPTIONAL_COLLECTORS empty string removed from VALID_COLLECTORS, parsed with filter(bool)
-- **Repo**: ansible/metrics-utility
-- **Commits**: aafd74c (#263)
-- **What happened**: The earlier fix (#178) handled empty/whitespace `METRICS_UTILITY_OPTIONAL_COLLECTORS` by adding `''` to `VALID_COLLECTORS`. This was replaced with a cleaner approach: `get_optional_collectors()` now strips whitespace and uses `filter(bool, ...)` to remove empty strings after splitting by comma. The validation in `validation.py` similarly strips and checks for empty before splitting. This eliminates the magic empty string from the valid set.
-- **Insight**: Rather than adding empty string as a "valid" sentinel value, use `filter(bool, s.split(','))` to cleanly handle the empty/whitespace case -- this removes the need for any special case in the valid values set. **Supersedes** the empty string workaround from #178.
 
 ### Dynaconf @json format for list-type env vars
 - **Repo**: ansible/metrics-service
@@ -402,12 +401,6 @@
 - **What happened**: The `mock_awx/settings/__init__.py` DB configuration was expanded to read `METRICS_UTILITY_DB_NAME`, `METRICS_UTILITY_DB_USER`, `METRICS_UTILITY_DB_PASSWORD`, and `METRICS_UTILITY_DB_PORT` (in addition to the existing `METRICS_UTILITY_DB_HOST`), with defaults matching the Docker Compose dev setup (`awx`, `myuser`, `mypassword`, `5432`). A warning was added to `metrics_utility/__init__.py`: when Controller modules are found (i.e., running inside a real Controller venv), any `METRICS_UTILITY_DB_*` env vars are logged as ignored with a message that they only take effect in standalone mode. The Makefile also gained `pcompose`, `pclean`, and `ppsql` targets for podman-compose users.
 - **Insight**: When env vars only apply in one operating mode (standalone) but are ignored in another (controller venv), warn the user explicitly -- silent ignoring of configuration is a common source of confusion when operators copy configs between environments.
 
-### Feature flag precedence order clarified and DASHBOARD_COLLECTION removed from defaults
-- **Repo**: ansible/metrics-service
-- **Commits**: fc2815a (no PR number), 8007509 (#189), babf061 (#199)
-- **What happened**: The `get_feature_enabled_from_db()` function's lookup order was formalized, then expanded in #199 to five tiers: (1) `Setting` row in dynamic_settings, (2) `settings.FEATURE_ENABLED[name]` if that key exists (includes Dynaconf env var overrides), (3) `settings.FEATURE_<name>_ENABLED` top-level attribute (set by installer via `settings.yaml`), (4) DAB `AAPFlag` `FEATURE_<name>_ENABLED`, (5) the `default` parameter. Tier 3 was added because the installer writes top-level keys like `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml`, which Dynaconf surfaces as a settings attribute but not inside the `FEATURE_ENABLED` dict. A `sync_flag_values_from_settings()` function was also added to propagate installer overrides to AAPFlag rows so the Gateway UI reflects the installer's intent.
-- **Insight**: When multiple configuration sources exist, explicit precedence documentation is critical. The five-tier order ensures: runtime API changes (Setting) > Dynaconf env var overrides (FEATURE_ENABLED dict) > installer intent (top-level attr) > platform defaults (AAPFlag) > code defaults. Each source has a clear owner and override path. Omitting a key from `FEATURE_ENABLED` lets it fall through to the installer/AAPFlag/default path, useful for flags that should be platform-managed by default.
-
 ### Feature flags now persist through DAB migrations via post_migrate signal
 - **Repo**: ansible/metrics-service
 - **Commits**: db116c4 (#184)
@@ -419,6 +412,12 @@
 - **Commits**: db116c4 (#184)
 - **What happened**: Dashboard URL changed from `/dashboard/` to `/api/dashboard/`. A redirect from `/api/v1/feature_flags/` to `/api/v1/feature_flags/states/` was added.
 - **Insight**: Placing the dashboard under `/api/` ensures it's covered by the same middleware and prefix handling as the REST API, simplifying gateway routing.
+
+### Feature flag precedence order clarified and DASHBOARD_COLLECTION removed from defaults
+- **Repo**: ansible/metrics-service
+- **Commits**: fc2815a (no PR number), 8007509 (#189), babf061 (#199)
+- **What happened**: The `get_feature_enabled_from_db()` function's lookup order was formalized, then expanded in #199 to five tiers: (1) `Setting` row in dynamic_settings, (2) `settings.FEATURE_ENABLED[name]` if that key exists (includes Dynaconf env var overrides), (3) `settings.FEATURE_<name>_ENABLED` top-level attribute (set by installer via `settings.yaml`), (4) DAB `AAPFlag` `FEATURE_<name>_ENABLED`, (5) the `default` parameter. Tier 3 was added because the installer writes top-level keys like `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml`, which Dynaconf surfaces as a settings attribute but not inside the `FEATURE_ENABLED` dict. A `sync_flag_values_from_settings()` function was also added to propagate installer overrides to AAPFlag rows so the Gateway UI reflects the installer's intent.
+- **Insight**: When multiple configuration sources exist, explicit precedence documentation is critical. The five-tier order ensures: runtime API changes (Setting) > Dynaconf env var overrides (FEATURE_ENABLED dict) > installer intent (top-level attr) > platform defaults (AAPFlag) > code defaults. Each source has a clear owner and override path. Omitting a key from `FEATURE_ENABLED` lets it fall through to the installer/AAPFlag/default path, useful for flags that should be platform-managed by default.
 
 ### load_task_feature_flags called from init-default-settings for pre-migrated environments
 - **Repo**: ansible/metrics-service

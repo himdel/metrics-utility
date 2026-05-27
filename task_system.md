@@ -3,7 +3,6 @@
 > Default repo: metrics-service
 
 ## Learnings
-
 ### Initial task system was a simple function registry with hardcoded scheduling
 - **Commits**: dd5603f
 - **What happened**: The first version of `apps/core/tasks.py` defined three placeholder task functions (`cleanup_old_data`, `send_notification_email`, `process_user_data`) and a `TASK_FUNCTIONS` dict mapping names to callables. Scheduling was a simple `SCHEDULED_TASKS` dict with interval-in-seconds values. No database persistence.
@@ -59,15 +58,15 @@
 - **What happened**: A new `apps/tasks/signals.py` module was created that uses Django's `post_save` signal on the Task model to automatically route newly created tasks based on their properties (immediate/scheduled/recurring). This eliminates the need for manual task submission after creation.
 - **Insight**: Signal-based task routing provides a zero-configuration experience for task creators, but introduces implicit behavior that can be hard to debug. Tasks are automatically submitted to dispatcherd just by saving a Task model instance.
 
-### Collector tasks switched from raw connection strings to Django connections API
-- **Commits**: 0854775 (#40)
-- **What happened**: All four collector tasks (`collect_anonymous_metrics`, `collect_config_metrics`, `collect_job_host_summary`, `collect_host_metrics`) were refactored from accepting a `db` string parameter to using `from django.db import connections` and `connections[db_name]`. The parameter was renamed from `db` (raw connection string) to `database` (Django database alias, defaulting to `"awx"`). An AWX database entry was added to `DATABASES` in `defaults.py` so `connections["awx"]` resolves properly.
-- **Insight**: Using Django's `connections` API instead of raw connection strings integrates naturally with Django's settings, connection pooling, and lifecycle management. The AWX database alias approach means operators configure the AWX connection once in settings (via `METRICS_SERVICE_DATABASES__awx__HOST` etc.) and all collector tasks use it transparently.
-
 ### Feature enable/disable functions became real implementations
 - **Commits**: c8e5f0d (#36)
 - **What happened**: `enable_task_group()` and `disable_task_group()` were previously stubs that logged "Would enable task group: ..." without doing anything. In this commit, they became real implementations using `Setting.objects.get_or_create()` to persist the toggle state in the database. A new `set_feature_enabled()` generic helper was also added.
 - **Insight**: The stub-to-real transition followed the pattern of getting the architecture right first (task groups, feature flags concept) and filling in the implementation later. The `get_or_create` pattern with conditional update avoids race conditions while handling both first-time and subsequent toggle changes.
+
+### Collector tasks switched from raw connection strings to Django connections API
+- **Commits**: 0854775 (#40)
+- **What happened**: All four collector tasks (`collect_anonymous_metrics`, `collect_config_metrics`, `collect_job_host_summary`, `collect_host_metrics`) were refactored from accepting a `db` string parameter to using `from django.db import connections` and `connections[db_name]`. The parameter was renamed from `db` (raw connection string) to `database` (Django database alias, defaulting to `"awx"`). An AWX database entry was added to `DATABASES` in `defaults.py` so `connections["awx"]` resolves properly.
+- **Insight**: Using Django's `connections` API instead of raw connection strings integrates naturally with Django's settings, connection pooling, and lifecycle management. The AWX database alias approach means operators configure the AWX connection once in settings (via `METRICS_SERVICE_DATABASES__awx__HOST` etc.) and all collector tasks use it transparently.
 
 ### CronTaskScheduler renamed to UnifiedTaskScheduler to handle both task groups and DB tasks
 - **Commits**: 7b39f53 (#56)
@@ -89,15 +88,15 @@
 - **What happened**: The entire `apps/tasks/signals.py` module (144 lines) was deleted. The `post_save` and `post_delete` signal handlers that auto-routed tasks to dispatcherd and the scheduler were removed. The `_skip_signals` attribute on Task model instances was removed from all code paths (views, scheduler, models). Task creation via the API now just calls `super().create()` with a comment: "All tasks are now handled by APScheduler polling." The PR description says signals "won't work across process'."
 - **Insight**: Signals were architecturally incompatible with the decision to run APScheduler in a separate process. Since `post_save` only fires in the process where `.save()` is called, the scheduler process never saw task creation events. DB polling is more reliable for cross-process communication, even though it adds latency (up to `check_interval` seconds). The removal also eliminated all the `_skip_signals` workarounds that had proliferated through tests and production code.
 
-### Duplicate immediate task execution bug fixed by tracking in _db_task_jobs
-- **Commits**: 3100514 (#64)
-- **What happened**: A one-line fix: before calling `self._execute_database_task(task.id)` for immediate tasks during periodic DB sync, the task ID is now added to `self._db_task_jobs` tracking dict. Without this, the scheduler's periodic sync would see the same pending immediate task on the next polling cycle and submit it again, because the task was executed but never tracked. This could cause duplicate executions and even system shutdown if dispatcherd's queue overflowed.
-- **Insight**: When switching from signal-based (instant, once) to polling-based (periodic, repeated) task discovery, any task not tracked in the "already seen" set will be re-discovered and re-executed on the next poll. This is a fundamental pitfall of polling architectures: you must track what you've already processed before processing it, not after.
-
 ### execute_db_task ordering bug: post-execution must happen before recurring status reset
 - **Commits**: e43d59d (#59)
 - **What happened**: In `execute_db_task()`, the code was resetting recurring tasks to "pending" status *before* calling `handle_post_execution()`. Since `handle_post_execution` checks `task.status == 'completed'` to decide whether to trigger dependent tasks, dependent tasks would never fire for recurring tasks. The fix moved `handle_post_execution()` (and the log statement) to run *before* the recurring status reset.
 - **Insight**: Order of operations matters critically in state machine code. The task goes through: running -> completed -> (post-execution triggers) -> pending (for recurring). Moving the pending reset before the trigger check silently broke a feature. This is the kind of subtle bug that is hard to catch in review because both orderings "look right" -- the issue is only apparent when you trace through what `handle_post_execution` checks.
+
+### Duplicate immediate task execution bug fixed by tracking in _db_task_jobs
+- **Commits**: 3100514 (#64)
+- **What happened**: A one-line fix: before calling `self._execute_database_task(task.id)` for immediate tasks during periodic DB sync, the task ID is now added to `self._db_task_jobs` tracking dict. Without this, the scheduler's periodic sync would see the same pending immediate task on the next polling cycle and submit it again, because the task was executed but never tracked. This could cause duplicate executions and even system shutdown if dispatcherd's queue overflowed.
+- **Insight**: When switching from signal-based (instant, once) to polling-based (periodic, repeated) task discovery, any task not tracked in the "already seen" set will be re-discovered and re-executed on the next poll. This is a fundamental pitfall of polling architectures: you must track what you've already processed before processing it, not after.
 
 ### Hourly and daily metrics collection pipeline
 - **Commits**: 3a58426 (#79)
@@ -124,15 +123,15 @@
 - **What happened**: The individual collector tasks (collect_job_host_summary_hourly, collect_host_metrics_hourly, collect_main_host_hourly) were replaced by two generic collector functions: `collect_hourly_metrics` and `collect_snapshot_metrics`. Each accepts a `collector_type` parameter that maps to a registry of known metrics-utility library imports. The registries use lazy imports to prevent metrics_utility from breaking unrelated task registration. Collectors were reorganized: (1) Removed `main_host` (not in anonymized chain) and `main_jobevent` (too slow, disabled). (2) Added `job_host_summary_service` (_service variant for partition pruning), `unified_jobs`, `credentials_service`, `execution_environments`. (3) Daily rollup refactored to read from HourlyMetricsCollection records rather than collecting data inline. (4) Anonymization task updated to pass rollups for 4 collector types plus empty `events_modules_rollup`. (5) The rollup expectation changed to `gather()->dataframe`, `prepare(dataframe)->json`, `merge(json,json)->json`.
 - **Insight**: The registry-based approach (mapping collector_type to collector function + rollup processor) eliminates the need for individual collector files that were all identical except for imports. Adding a new collector now means just updating the registry dict. The lazy import pattern (`def _get_hourly_collectors()`) is crucial because importing metrics_utility at module level would break tasks like hello_world that don't need the library.
 
-### Two more snapshot collectors added (controller_version_service, table_metadata)
-- **Commits**: 05dc0c9 (#112)
-- **What happened**: Added `controller_version_service` (ControllerVersionAnonymizedRollup) and `table_metadata` (TableMetadataAnonymizedRollup) to the snapshot collectors registry. Added corresponding scheduled tasks at 1:35 AM and 1:40 AM. Updated daily_metrics_rollup to merge these new collector types and daily_anonymize_and_prepare to pass them to `anonymize_rollups()`.
-- **Insight**: This demonstrates the benefit of the registry-based collector design from #109 -- adding two new collectors was a small, clean change (57 additions across 8 files) rather than requiring new task files, new TASK_FUNCTIONS entries, and new test files for each.
-
 ### Bug fix: generic_collect_metrics must reset status on update_or_create
 - **Commits**: 1580ff2 (#109)
 - **What happened**: The `update_or_create` call in `generic_collect_metrics` only set `raw_data` in `defaults`, omitting `status="collected"` and `error_message=""`. When a collection was already processed by daily rollup (status="processed") and re-collected, the update left status as "processed", making the new data invisible to the next rollup which filters by `status="collected"`.
 - **Insight**: Django's `update_or_create` only applies `defaults` when creating a new record; on update, it sets them too, but omitting fields means they keep their old values. For state machine fields like `status`, always include them in `defaults` to ensure re-processing resets state correctly.
+
+### Two more snapshot collectors added (controller_version_service, table_metadata)
+- **Commits**: 05dc0c9 (#112)
+- **What happened**: Added `controller_version_service` (ControllerVersionAnonymizedRollup) and `table_metadata` (TableMetadataAnonymizedRollup) to the snapshot collectors registry. Added corresponding scheduled tasks at 1:35 AM and 1:40 AM. Updated daily_metrics_rollup to merge these new collector types and daily_anonymize_and_prepare to pass them to `anonymize_rollups()`.
+- **Insight**: This demonstrates the benefit of the registry-based collector design from #109 -- adding two new collectors was a small, clean change (57 additions across 8 files) rather than requiring new task files, new TASK_FUNCTIONS entries, and new test files for each.
 
 ### cleanup_activitystream task added for DAB audit log pruning
 - **Commits**: e3b9969 (#144)
@@ -219,24 +218,6 @@
 - **What happened**: The `_periodic_database_sync` (30s loop) and `_sync_database_tasks` (startup sync) were picking up all pending tasks regardless of feature flag state, then checking the flag in `_execute_database_task` and logging a skip. For immediate tasks with `cron: None`, this created an infinite loop: pick up -> skip -> remove from tracking -> next cycle picks up again (DB row stays pending). The fix added a `_task_feature_flag_enabled(task)` helper that reads `task.task_data["_feature_flag"]` and checks via `get_feature_enabled_from_db()`. Both sync methods now call this before adding any task to the scheduler. The skip log in `_execute_database_task` was downgraded from INFO to DEBUG.
 - **Insight**: Feature flag checks should happen at the point of task discovery (the scheduler sync), not at the point of execution. This prevents disabled tasks from churning through the scheduler loop and producing noisy logs. When the flag is re-enabled, the next sync cycle automatically picks up the task -- no manual intervention needed.
 
-### Stuck task detection moved into scheduler's periodic sync
-- **Repo**: ansible/metrics-service
-- **Commits**: e7558f7 (#211)
-- **What happened**: Stuck task detection was added to `_periodic_database_sync` in `cron_scheduler.py`. On each 30-second tick, any task in "running" status whose `started_at` is older than `STUCK_TASK_TIMEOUT_SECONDS` (hardcoded to 3600) is atomically marked failed along with its `TaskExecution` record, using `transaction.atomic()`. Both `Task` and `TaskExecution` are updated with `status="failed"`, an error message, and `completed_at=now`. Tests cover: task beyond timeout (marked failed), task within timeout (left alone), task with no `started_at` (ignored), and associated execution record updates.
-- **Insight**: Piggy-backing stuck task detection on the existing scheduler tick (which already queries the DB every 30s) avoids adding a separate monitoring job. The detection is simple and robust: any running task older than the timeout is assumed to have a dead worker. The `transaction.atomic()` ensures Task and TaskExecution stay in sync.
-
-### Task timeout consolidated into single TASK_TIMEOUT Dynaconf setting
-- **Repo**: ansible/metrics-service
-- **Commits**: 0b00a81 (#218), c680e42 (#228)
-- **What happened**: The per-task `timeout_seconds` DB field was removed (migration 0004), the hardcoded `STUCK_TASK_TIMEOUT_SECONDS = 3600` constant was eliminated, and the `--timeout` CLI flags on `run` and `run_dispatcherd` were made no-ops (kept for compatibility). All timeout logic now uses `settings.TASK_TIMEOUT` (default 3600, overridable via `METRICS_SERVICE_TASK_TIMEOUT` env var). Both stuck task detection in `cron_scheduler.py` and dispatcherd's `default_timeout` in `dispatcherd_config.py` now read from this single setting. In #228, a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` constant was re-introduced for readability in the scheduler code.
-- **Insight**: Consolidating timeout into a single Dynaconf setting eliminates the three-way inconsistency that was possible (DB field vs hardcoded constant vs CLI arg). The `--timeout` flag stays for backward compatibility but does nothing, avoiding breaking existing deployment scripts. The env var override (`METRICS_SERVICE_TASK_TIMEOUT`) follows the existing Dynaconf naming convention for production overrides.
-
-### Exponential backoff for task retries (extended retry window)
-- **Repo**: ansible/metrics-service
-- **Commits**: 9fcd1d2 (#220)
-- **What happened**: Task retry was changed from a fixed 10-minute delay with 3 max attempts (~30 min window) to exponential backoff with 7 max attempts (~10.5 hour window). A `compute_retry_delay(base_delay, attempts)` function computes `min(base * 2^(attempts-1), 8h)`. The backoff is applied via `_schedule_retry()` which validates `retry_delay_seconds` from `task_data` (with fallback to `RETRY_BASE_DELAY_SECONDS = 600`). A `SEGMENT_MAX_ATTEMPTS = 7` constant is defined in `task_groups.py` and applied to both the `daily_anonymize_and_prepare` cron task and the dynamically created `send_anonymized_to_segment` one-time tasks. The retry logic was also extracted from inline code in `execute_claimed()` into a dedicated `_schedule_retry()` function with double `can_retry()` check (before and after `refresh_from_db()`). Several `logger.error(f"...")` calls were upgraded to `logger.exception(...)` for better traceback capture.
-- **Insight**: Fixed-interval retries are insufficient for tasks that depend on external services with multi-hour outages (like Segment API downtime). Exponential backoff with a cap (8h) spreads retries out enough to survive sustained outages while still retrying frequently early on. The 7-attempt / 10.5-hour window was chosen specifically for the Segment send use case. Extracting retry logic into `_schedule_retry()` also makes it testable independently of the full execution flow.
-
 ### Feature flag precedence expanded to five tiers with installer settings.yaml override
 - **Commits**: babf061 (#199)
 - **What happened**: The `get_feature_enabled_from_db()` lookup order was expanded from four to five tiers: (1) `Setting` row, (2) `settings.FEATURE_ENABLED[name]` dict, (3) **new**: `settings.FEATURE_<name>_ENABLED` top-level attribute (set by installer via `settings.yaml`), (4) AAPFlag, (5) default. The new tier 3 was added because the installer writes `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml`, which Dynaconf surfaces as a top-level settings attribute. Without this tier, the installer's intent was ignored because the key wasn't in the `FEATURE_ENABLED` dict.
@@ -246,6 +227,24 @@
 - **Commits**: babf061 (#199)
 - **What happened**: A new `sync_flag_values_from_settings()` function was added to `apps/tasks/apps.py`. It reads each flag from `feature_flags.yaml`, checks for a matching top-level settings attribute (`settings.FEATURE_<name>_ENABLED`), and updates the AAPFlag DB row if the values differ. Called from `init-default-settings` (which runs during container startup). Saves without `no_reverse_sync()` so the change propagates to the Gateway resource server.
 - **Insight**: The Gateway UI reads feature flag state from AAPFlag rows. If the installer sets `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` in `settings.yaml` but the AAPFlag row still says `False` (from the YAML seed), the Gateway shows the wrong state. This sync function bridges the gap. It only runs during `init-default-settings` (not `AppConfig.ready()`) to avoid writing to the DB on every Django invocation.
+
+### Stuck task detection moved into scheduler's periodic sync
+- **Repo**: ansible/metrics-service
+- **Commits**: e7558f7 (#211)
+- **What happened**: Stuck task detection was added to `_periodic_database_sync` in `cron_scheduler.py`. On each 30-second tick, any task in "running" status whose `started_at` is older than `STUCK_TASK_TIMEOUT_SECONDS` (hardcoded to 3600) is atomically marked failed along with its `TaskExecution` record, using `transaction.atomic()`. Both `Task` and `TaskExecution` are updated with `status="failed"`, an error message, and `completed_at=now`. Tests cover: task beyond timeout (marked failed), task within timeout (left alone), task with no `started_at` (ignored), and associated execution record updates.
+- **Insight**: Piggy-backing stuck task detection on the existing scheduler tick (which already queries the DB every 30s) avoids adding a separate monitoring job. The detection is simple and robust: any running task older than the timeout is assumed to have a dead worker. The `transaction.atomic()` ensures Task and TaskExecution stay in sync.
+
+### Exponential backoff for task retries (extended retry window)
+- **Repo**: ansible/metrics-service
+- **Commits**: 9fcd1d2 (#220)
+- **What happened**: Task retry was changed from a fixed 10-minute delay with 3 max attempts (~30 min window) to exponential backoff with 7 max attempts (~10.5 hour window). A `compute_retry_delay(base_delay, attempts)` function computes `min(base * 2^(attempts-1), 8h)`. The backoff is applied via `_schedule_retry()` which validates `retry_delay_seconds` from `task_data` (with fallback to `RETRY_BASE_DELAY_SECONDS = 600`). A `SEGMENT_MAX_ATTEMPTS = 7` constant is defined in `task_groups.py` and applied to both the `daily_anonymize_and_prepare` cron task and the dynamically created `send_anonymized_to_segment` one-time tasks. The retry logic was also extracted from inline code in `execute_claimed()` into a dedicated `_schedule_retry()` function with double `can_retry()` check (before and after `refresh_from_db()`). Several `logger.error(f"...")` calls were upgraded to `logger.exception(...)` for better traceback capture.
+- **Insight**: Fixed-interval retries are insufficient for tasks that depend on external services with multi-hour outages (like Segment API downtime). Exponential backoff with a cap (8h) spreads retries out enough to survive sustained outages while still retrying frequently early on. The 7-attempt / 10.5-hour window was chosen specifically for the Segment send use case. Extracting retry logic into `_schedule_retry()` also makes it testable independently of the full execution flow.
+
+### Task timeout consolidated into single TASK_TIMEOUT Dynaconf setting
+- **Repo**: ansible/metrics-service
+- **Commits**: 0b00a81 (#218), c680e42 (#228)
+- **What happened**: The per-task `timeout_seconds` DB field was removed (migration 0004), the hardcoded `STUCK_TASK_TIMEOUT_SECONDS = 3600` constant was eliminated, and the `--timeout` CLI flags on `run` and `run_dispatcherd` were made no-ops (kept for compatibility). All timeout logic now uses `settings.TASK_TIMEOUT` (default 3600, overridable via `METRICS_SERVICE_TASK_TIMEOUT` env var). Both stuck task detection in `cron_scheduler.py` and dispatcherd's `default_timeout` in `dispatcherd_config.py` now read from this single setting. In #228, a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` constant was re-introduced for readability in the scheduler code.
+- **Insight**: Consolidating timeout into a single Dynaconf setting eliminates the three-way inconsistency that was possible (DB field vs hardcoded constant vs CLI arg). The `--timeout` flag stays for backward compatibility but does nothing, avoiding breaking existing deployment scripts. The env var override (`METRICS_SERVICE_TASK_TIMEOUT`) follows the existing Dynaconf naming convention for production overrides.
 
 ## Superseded / Semi-Obsolete
 

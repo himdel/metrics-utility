@@ -1,5 +1,4 @@
 # Docker and Deployment
-
 ### Docker Compose environment for local development with PostgreSQL and MinIO
 - **Repo**: ansible/metrics-utility
 - **Commits**: b6879b0 (#71), be761a3 (#52)
@@ -30,6 +29,12 @@
 - **What happened**: The initial Dockerfile was just 9 lines: base image, pip upgrade, copy requirements, pip install. No WORKDIR, no ENTRYPOINT, no health check, no proper user setup, and it referenced `requirements/requirements.in` which didn't exist at that path. Commit e0bfd65 replaced it with a proper Dockerfile (~50 lines) with WORKDIR, env vars, system deps (gcc, postgresql-devel, openldap-devel), non-root user (UID 1001), health check, and entrypoint.
 - **Insight**: Template Dockerfiles need to be tested with `docker build` before committing. The initial version would have failed immediately.
 
+### Kubernetes manifests carried forward from template with minimal changes
+- **Repo**: ansible/metrics-service
+- **Commits**: dd5603f, be51903, 5e05775, cc2ac77
+- **What happened**: K8s manifests were renamed from `my-service` to `metrics-service` but otherwise kept template defaults. Commit cc2ac77 added security improvements: `automountServiceAccountToken: false`, tagged image version (`metrics-service:1.0.0` instead of just `metrics-service`), and ephemeral storage limits.
+- **Insight**: The Sonar-driven fixes (cc2ac77) caught real security issues in the k8s manifests: auto-mounting service account tokens is a security risk, and untagged images make deployments non-reproducible.
+
 ### Docker entrypoint handles migration and service initialization
 - **Repo**: ansible/metrics-service
 - **Commits**: e0bfd65
@@ -47,12 +52,6 @@
 - **Commits**: e0bfd65
 - **What happened**: `apps/core/resource_api.py` had its `OAuth2Application` and `OAuth2AccessToken` resource registrations commented out because they caused import errors. The `try/except ImportError` block was already there but apparently wasn't catching the actual error.
 - **Insight**: DAB's OAuth2 provider models may not be available during migrations or initial setup, and the `try/except ImportError` pattern doesn't catch all failure modes (e.g., `AppRegistryNotReady`).
-
-### Kubernetes manifests carried forward from template with minimal changes
-- **Repo**: ansible/metrics-service
-- **Commits**: dd5603f, be51903, 5e05775, cc2ac77
-- **What happened**: K8s manifests were renamed from `my-service` to `metrics-service` but otherwise kept template defaults. Commit cc2ac77 added security improvements: `automountServiceAccountToken: false`, tagged image version (`metrics-service:1.0.0` instead of just `metrics-service`), and ephemeral storage limits.
-- **Insight**: The Sonar-driven fixes (cc2ac77) caught real security issues in the k8s manifests: auto-mounting service account tokens is a security risk, and untagged images make deployments non-reproducible.
 
 ### Docker switched from pip to uv for dependency management
 - **Repo**: ansible/metrics-service

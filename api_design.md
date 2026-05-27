@@ -3,16 +3,15 @@
 > Default repo: metrics-service
 
 ## Learnings
+### API views use AnsibleBaseDjangoAppApiView as base
+- **Commits**: dd5603f
+- **What happened**: All viewsets inherit from both `AnsibleBaseDjangoAppApiView` (from DAB) and `viewsets.ModelViewSet`. This dual inheritance provides DAB's authentication/authorization integration while keeping DRF's standard CRUD operations.
+- **Insight**: The DAB integration is done via mixin-style multiple inheritance. The permission classes combine `OAuth2ScopePermission` and `AnsibleBaseObjectPermissions`, meaning both OAuth2 scope and object-level RBAC must be satisfied.
 
 ### Serializers migrated from ModelSerializer to HyperlinkedModelSerializer
 - **Commits**: ad01618
 - **What happened**: All four serializers (User, Organization, Team, Animal) were changed from `serializers.ModelSerializer` to `serializers.HyperlinkedModelSerializer`. At the same time, `resource` field was removed from all serializers (it was a DAB-specific field that may not have been stable yet), and `description` was dropped from AnimalSerializer.
 - **Insight**: `HyperlinkedModelSerializer` uses URLs instead of primary keys for relationships, making the API more RESTful and self-documenting. The trade-off is that `url` fields require properly configured `view_name` kwargs, which adds maintenance burden.
-
-### API views use AnsibleBaseDjangoAppApiView as base
-- **Commits**: dd5603f
-- **What happened**: All viewsets inherit from both `AnsibleBaseDjangoAppApiView` (from DAB) and `viewsets.ModelViewSet`. This dual inheritance provides DAB's authentication/authorization integration while keeping DRF's standard CRUD operations.
-- **Insight**: The DAB integration is done via mixin-style multiple inheritance. The permission classes combine `OAuth2ScopePermission` and `AnsibleBaseObjectPermissions`, meaning both OAuth2 scope and object-level RBAC must be satisfied.
 
 ### Code duplication reduction through base classes and mixins
 - **Commits**: 2a1c481 (#9)

@@ -1,5 +1,4 @@
 # Architecture
-
 ### metrics-utility is a Django management command that runs inside Controller's environment
 - **Repo**: ansible/metrics-utility
 - **Commits**: 8ab89cc, 22b3072, 1b95f39, 03a5640
@@ -12,6 +11,12 @@
 - **What happened**: The `gather_automation_controller_billing_data` command subclasses `insights_analytics_collector.Collector`. Collectors are registered with `@register` decorators specifying name, version, format (json/csv), and a slicing function. The collector uses a PostgreSQL advisory lock (`gather_automation_controller_billing_lock`) to prevent concurrent runs. Data is exported via `COPY ... TO STDOUT WITH CSV HEADER` for performance.
 - **Insight**: The billing collector reuses the same framework and advisory lock mechanism as Controller's analytics collection, but with a separate lock name to avoid conflicts.
 
+### Slicing strategy evolved from trivial to daily
+- **Repo**: ansible/metrics-utility
+- **Commits**: 755110d (#5), 6357e51 (#8), 6e60790 (#9)
+- **What happened**: The initial billing collector used `trivial_slicing` (single interval). PR #8 enabled gap-filling by loading last-collected timestamps from `AUTOMATION_ANALYTICS_LAST_ENTRIES`. PR #9 replaced `trivial_slicing` with `daily_slicing` which breaks the collection interval into day-sized chunks -- first completing the remainder of the start day, then full days.
+- **Insight**: Daily slicing ensures tarball files are partitioned by day, which is important for the report builder that later reads these tarballs and aggregates by date.
+
 ### Last-gathered timestamps shared with Controller analytics via shared settings
 - **Repo**: ansible/metrics-utility
 - **Commits**: 6357e51 (#8)
@@ -23,12 +28,6 @@
 - **Commits**: 6e60790 (#9)
 - **What happened**: PR #9 introduced a factory pattern for packaging (`PackageFactory`) and extraction (`ExtractorFactory`), supporting `crc` (console.redhat.com) and `directory` (local filesystem) ship targets. The `_package_class()` method changed from a static method returning a single class to an instance method using the factory. A `build_report` command was added to generate XLSX reports from locally stored data.
 - **Insight**: The ship target abstraction (crc vs directory) was a key architectural decision that enabled both cloud shipping and local report generation from the same collection pipeline.
-
-### Slicing strategy evolved from trivial to daily
-- **Repo**: ansible/metrics-utility
-- **Commits**: 755110d (#5), 6357e51 (#8), 6e60790 (#9)
-- **What happened**: The initial billing collector used `trivial_slicing` (single interval). PR #8 enabled gap-filling by loading last-collected timestamps from `AUTOMATION_ANALYTICS_LAST_ENTRIES`. PR #9 replaced `trivial_slicing` with `daily_slicing` which breaks the collection interval into day-sized chunks -- first completing the remainder of the start day, then full days.
-- **Insight**: Daily slicing ensures tarball files are partitioned by day, which is important for the report builder that later reads these tarballs and aggregates by date.
 
 ### Local storage path scheme changed from Hive-style to plain directories
 - **Repo**: ansible/metrics-utility
@@ -60,17 +59,17 @@
 - **What happened**: The renewal guidance report deduplicates hosts by iteratively searching for matches across four keys: hostname, ansible_host variable, product serial (originally board serial, changed in 1236de5), and machine UUID. The algorithm runs configurable iterations (default 3, via `REPORT_RENEWAL_GUIDANCE_DEDUP_ITERATIONS`) to find indirect relationships -- e.g., host A shares a serial with host B, and host B shares a hostname with host C, so all three are the same managed node. A processed index set prevents double-counting.
 - **Insight**: Iterative multi-key dedup is necessary because a single host can appear in multiple inventories under different names but with matching hardware identifiers, creating indirect relationship chains.
 
-### S3 storage adapter added as third ship target with ReportSaver abstraction
-- **Repo**: ansible/metrics-utility
-- **Commits**: 1e86f8c
-- **What happened**: A new `s3` ship target was added alongside `directory` and `crc`. This required creating `S3Handler` (a shared boto3 wrapper in `base/s3_handler.py`), `ExtractorS3`, `PackageS3`, and `ReportSaverS3`. To support S3 report saving, the report saving logic was extracted from the `build_report` command into a new `ReportSaver` abstraction with a factory (`ReportSaverFactory`) producing `ReportSaverDirectory` or `ReportSaverS3`. Previously, directory creation and `report_spreadsheet.save()` were inline in the command. Ship target validation logic was also extracted from the command classes into a shared `management/validation.py` module, DRYing up the duplicate `_handle_directory_ship_target()` and `_handle_crc_ship_target()` methods that existed in both the gather and build_report commands.
-- **Insight**: Adding S3 support forced two good refactors: (1) extracting report saving into its own strategy pattern (ReportSaver) since S3 needs temp-file-then-upload, and (2) centralizing ship target validation since gather and build_report previously had separate copies of the same env var handling.
-
 ### CCSPv2 report sheets became fully configurable with ccsp_summary as optional
 - **Repo**: ansible/metrics-utility
 - **Commits**: da636a6, b721f52
 - **What happened**: The CCSPv2 report's first "Usage Reporting" summary sheet was made optional (gated behind `ccsp_summary` in `METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS`), and `ccsp_summary` was added to the default sheet list. A new `jobs` sheet was added showing job template usage aggregated by organization. A `managed_nodes_by_organizations` sheet was added that creates a pivot table with organizations as columns and last-automation dates as values. An `METRICS_UTILITY_ORGANIZATION_FILTER` env var was added to filter reports to specific organizations (semicolon-separated list). The sheet_index became dynamic (starting at 0 instead of hardcoded 1) since the summary sheet might not exist.
 - **Insight**: Making even the "main" summary sheet optional (via `ccsp_summary`) enabled reusing CCSPv2 as a general-purpose usage history report outside the CCSP billing domain -- the same report type serves both billing and operational analytics use cases.
+
+### S3 storage adapter added as third ship target with ReportSaver abstraction
+- **Repo**: ansible/metrics-utility
+- **Commits**: 1e86f8c
+- **What happened**: A new `s3` ship target was added alongside `directory` and `crc`. This required creating `S3Handler` (a shared boto3 wrapper in `base/s3_handler.py`), `ExtractorS3`, `PackageS3`, and `ReportSaverS3`. To support S3 report saving, the report saving logic was extracted from the `build_report` command into a new `ReportSaver` abstraction with a factory (`ReportSaverFactory`) producing `ReportSaverDirectory` or `ReportSaverS3`. Previously, directory creation and `report_spreadsheet.save()` were inline in the command. Ship target validation logic was also extracted from the command classes into a shared `management/validation.py` module, DRYing up the duplicate `_handle_directory_ship_target()` and `_handle_crc_ship_target()` methods that existed in both the gather and build_report commands.
+- **Insight**: Adding S3 support forced two good refactors: (1) extracting report saving into its own strategy pattern (ReportSaver) since S3 needs temp-file-then-upload, and (2) centralizing ship target validation since gather and build_report previously had separate copies of the same env var handling.
 
 ### mock_awx enables running build_report without a Controller installation
 - **Repo**: ansible/metrics-utility
@@ -228,23 +227,29 @@
 - **What happened**: Created `BaseViewSet` (extending `AnsibleBaseDjangoAppApiView + ModelViewSet`), `UserManagementMixin` (generic add/remove user actions), `BaseModelSerializer` (extending `HyperlinkedModelSerializer` with auto read-only fields), and `CountFieldMixin`. All existing viewsets and serializers were refactored to inherit from these.
 - **Insight**: Extracting common patterns into base classes early establishes a consistent API layer, but the base classes here do a lot of implicit things (auto-setting `read_only_fields` in `__init__`, auto-setting `created_by` in `perform_create`) that can surprise developers who don't read the base class code.
 
-### Boilerplate cleanup removed Animal model, health app, Team API, and placeholder code
-- **Repo**: ansible/metrics-service
-- **Commits**: 32c5dab (#12), c6947ce (#14)
-- **What happened**: Commit 32c5dab removed the Animal model, TeamViewSet/AnimalViewSet, and the health check app (`apps/health/`), plus placeholder tests and example scripts. The PR was explicitly meant to be merged before the RBAC PR (#10). In the bigger refactor (c6947ce), the Animal model was fully removed from the core app along with its migration, and tasks were moved from `apps/core/tasks.py` to a dedicated `apps/tasks/` app. The `apps/core/models.py` was gutted of task-related models, which moved to `apps/tasks/models.py`.
-- **Insight**: The cleanup was deferred too long -- the template boilerplate (Animal, health checks) survived through multiple feature PRs before being removed. Cleaning up template code should be the very first PR after forking a template.
-
 ### vCPU collector switched from Kubernetes API to Prometheus with PrometheusClient/KubernetesClient classes
 - **Repo**: ansible/metrics-utility
 - **Commits**: 0be6cd0 (#198)
 - **What happened**: The `total_workers_vcpu` collector was refactored from using the `kubernetes` Python library (`CoreV1Api.list_node()`) to querying Prometheus via a new `PrometheusClient` class. The client authenticates using a Kubernetes service account token (read from the mounted secret at `/var/run/secrets/kubernetes.io/serviceaccount/token`) via a new `KubernetesClient` class. The PromQL query `max_over_time(sum(machine_cpu_cores)[59m59s:5m])` computes the maximum total vCPUs over the previous hour with 5-minute resolution, collecting 59m59s to avoid overlapping with the current hour boundary. The collector now also records a CPU timeline (array of timestamp/cpu_sum pairs at 5-minute intervals) in the output JSON for auditability. The `kubernetes` Python library dependency was effectively replaced by `requests` (for Prometheus HTTP API) and raw file reads (for service account tokens).
 - **Insight**: The Prometheus-based approach gives billing-grade vCPU data by using `max_over_time` over the previous hour rather than an instantaneous snapshot -- this captures peak usage and is resilient to node scaling events mid-hour. **Supersedes** the Kubernetes API approach from #165.
 
+### Boilerplate cleanup removed Animal model, health app, Team API, and placeholder code
+- **Repo**: ansible/metrics-service
+- **Commits**: 32c5dab (#12), c6947ce (#14)
+- **What happened**: Commit 32c5dab removed the Animal model, TeamViewSet/AnimalViewSet, and the health check app (`apps/health/`), plus placeholder tests and example scripts. The PR was explicitly meant to be merged before the RBAC PR (#10). In the bigger refactor (c6947ce), the Animal model was fully removed from the core app along with its migration, and tasks were moved from `apps/core/tasks.py` to a dedicated `apps/tasks/` app. The `apps/core/models.py` was gutted of task-related models, which moved to `apps/tasks/models.py`.
+- **Insight**: The cleanup was deferred too long -- the template boilerplate (Animal, health checks) survived through multiple feature PRs before being removed. Cleaning up template code should be the very first PR after forking a template.
+
 ### DAB try/except ImportError fallbacks removed in favor of hard dependency
 - **Repo**: ansible/metrics-service
 - **Commits**: fd6745d (#10)
 - **What happened**: The `apps/core/models.py` was rewritten to remove all `try/except ImportError` blocks and the `DAB_AVAILABLE` boolean gate. All DAB imports (`AbstractDABUser`, `AbstractOrganization`, `CommonModel`, `AnsibleResourceField`, etc.) became unconditional direct imports. The fallback base classes (simple `CommonModel`, `NamedCommonModel`, etc.) were deleted entirely.
 - **Insight**: The team decided DAB is a hard requirement, not optional. This eliminated the dual code path problem noted in the previous batch, simplifying the codebase significantly. The `resource = AnsibleResourceField(...)` declarations on models also became unconditional.
+
+### Service-oriented collectors added alongside existing billing collectors
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0c851b4 (#214)
+- **What happened**: Four new collectors were added for the metrics service use case: `unified_jobs` (all job data with content types, EE images, installed collections), `job_host_summary_service` (similar to existing `job_host_summary` but filtered by `job.finished` rather than `jobhostsummary.modified`), `main_jobevent_service` (events with full event_data for module/collection analysis), and `execution_environments` (EE inventory via `limit_slicing`). The `job_host_summary_service` collector uses the same CTE-based optimization as the existing collector (#151) for host variable parsing. The `main_jobevent_service` collector uses a two-phase approach: first queries job IDs finished in the window, then builds a literal `VALUES` clause for the event query to avoid a potentially expensive join. All four are gated by `METRICS_UTILITY_OPTIONAL_COLLECTORS` and added to `VALID_COLLECTORS` in validation.
+- **Insight**: The service collectors filter by `job.finished` timestamp (when the job completed) rather than `jobhostsummary.modified` (when the summary was last touched) -- this ensures consistent time boundaries when correlating jobs with their events and host summaries for aggregation.
 
 ### Task system extracted from apps/core into dedicated apps/tasks app
 - **Repo**: ansible/metrics-service
@@ -258,6 +263,18 @@
 - **What happened**: A new `apps/dashboard/` app was added with a single-page HTML template (`dashboard.html`, ~1000 lines of inline HTML/CSS/JS) that displays real-time task status, execution history, and system metrics. The dashboard communicates with the API endpoints under `/api/v1/tasks/` via JavaScript fetch calls.
 - **Insight**: The dashboard is a monolithic HTML file with all JS/CSS inline, rather than using a proper frontend build system. This is pragmatic for a demo/monitoring tool but will be hard to maintain as it grows. It was enhanced further in edb4626 (#25) to ~1400 lines.
 
+### Unified metrics_service management command as single entry point
+- **Repo**: ansible/metrics-service
+- **Commits**: c6947ce (#14), edb4626 (#25)
+- **What happened**: A single `metrics_service` management command (`apps/core/management/commands/metrics_service.py`) was created that can run the full service (Django server + dispatcherd + task scheduler in parallel threads), initialize service IDs, init system tasks, and manage task groups. In edb4626 this grew to 900+ lines before being refactored into the service layer.
+- **Insight**: The "one command to rule them all" pattern (`python manage.py metrics_service run`) is convenient for development but the monolithic command became a complexity sink. The subsequent service layer extraction was necessary to make it manageable.
+
+### Tarball filenames now include collection name for identification
+- **Repo**: ansible/metrics-utility
+- **Commits**: 97d8bc7 (#226)
+- **What happened**: Tarball names were changed from `{uuid}-{since}-{until}-{index}.tar.gz` to `{uuid}-{since}-{until}-{index}-{collection_key}.tar.gz`. The implementation first creates the tarball with `-unknown` suffix, then renames it after writing the collection data (when the collection key is known). If the rename fails, the tarball keeps the `-unknown` suffix and an error is logged. The index numbering is unaffected by the suffix.
+- **Insight**: Adding the collection key to tarball names makes it possible to identify what data a tarball contains without extracting it -- especially useful now that multiple collector types produce separate tarballs in the same directory.
+
 ### Library module introduced as shared code between CLI and external service
 - **Repo**: ansible/metrics-utility
 - **Commits**: 5fe762a (#218)
@@ -270,29 +287,17 @@
 - **What happened**: A new `metrics_utility/anonymized_rollups/` module was added with four rollup classes: `JobsAnonymizedRollups` (job duration, waiting time, success/failure stats grouped by template), `JobHostSummaryAnonymizedRollup` (task counts grouped by template), `EventModulesAnonymizedRollups` (module usage, collection source stats, task success/failure/skip/unreachable rates), and `ExecutionEnvironmentsAnonymizedRollups` (default vs custom EE counts). These operate on the data from the new service-oriented collectors (#214) and produce JSON aggregations rather than XLSX reports. The event modules rollup uses a two-phase aggregation: first collapsing events to one row per (job, host, task_uuid, module) to get task-level outcomes, then aggregating to per-module and per-collection-source statistics. A `collections.json` file (#225) maps collection names to their source type (community, validated, certified).
 - **Insight**: Anonymized rollups represent a fundamentally different output path from the existing CCSP/renewal reports -- they produce JSON aggregations for a metrics service rather than customer-facing XLSX spreadsheets, enabling analytics without exposing customer-identifiable data.
 
-### Service-oriented collectors added alongside existing billing collectors
+### Tarball and file filtering by collection name at extraction time
 - **Repo**: ansible/metrics-utility
-- **Commits**: 0c851b4 (#214)
-- **What happened**: Four new collectors were added for the metrics service use case: `unified_jobs` (all job data with content types, EE images, installed collections), `job_host_summary_service` (similar to existing `job_host_summary` but filtered by `job.finished` rather than `jobhostsummary.modified`), `main_jobevent_service` (events with full event_data for module/collection analysis), and `execution_environments` (EE inventory via `limit_slicing`). The `job_host_summary_service` collector uses the same CTE-based optimization as the existing collector (#151) for host variable parsing. The `main_jobevent_service` collector uses a two-phase approach: first queries job IDs finished in the window, then builds a literal `VALUES` clause for the event query to avoid a potentially expensive join. All four are gated by `METRICS_UTILITY_OPTIONAL_COLLECTORS` and added to `VALID_COLLECTORS` in validation.
-- **Insight**: The service collectors filter by `job.finished` timestamp (when the job completed) rather than `jobhostsummary.modified` (when the summary was last touched) -- this ensures consistent time boundaries when correlating jobs with their events and host summaries for aggregation.
+- **Commits**: 3b28731 (#227)
+- **What happened**: Following the tarball naming change (#226), extractors and dataframe engines now filter which tarballs to open and which files to extract based on the collection name. Each dataframe engine declares which collections it needs (e.g., `DataframeJobhostSummaryUsage` needs `['job_host_summary', 'main_indirectmanagednodeaudit']`, `DataframeContentUsage` needs `['main_jobevent']`). The `iter_batches()` method gained `collections` and `optional` parameters. `filter_tarball_paths()` in the extract Base class uses regex to match tarball filenames against the requested collections, with backward compatibility for pre-0.7.0 tarballs that lack the collection suffix. `_safe_extract()` also gained an `enabled_set` parameter to skip extracting CSV files from within the tarball that aren't needed. The `indirect_nodes` key in `needed_data` was renamed to `main_indirectmanagednodeaudit` to match the actual collector name.
+- **Insight**: Filtering at two levels (which tarballs to open, and which files to extract from each tarball) provides a multiplicative optimization -- when a dataframe engine only needs `main_jobevent` data, it skips both the tarballs named `*-job_host_summary.tar.gz` and any non-jobevent CSV files inside the opened tarballs.
 
 ### Service layer introduced for management command decomposition
 - **Repo**: ansible/metrics-service
 - **Commits**: edb4626 (#25)
 - **What happened**: A new `apps/core/services/` package was created with six service classes: `TaskManager`, `CronManager`, `SystemInitializer`, `ProcessManager`, `OutputFormatter`, and `ServiceConfig`. These were extracted from the monolithic `metrics_service` management command to decompose its 900+ lines into focused service objects.
 - **Insight**: The service layer pattern keeps management commands thin (they delegate to service objects), making the logic testable in isolation. Each service has a single responsibility: `ProcessManager` handles subprocess lifecycle, `CronManager` handles scheduling, etc.
-
-### Tarball filenames now include collection name for identification
-- **Repo**: ansible/metrics-utility
-- **Commits**: 97d8bc7 (#226)
-- **What happened**: Tarball names were changed from `{uuid}-{since}-{until}-{index}.tar.gz` to `{uuid}-{since}-{until}-{index}-{collection_key}.tar.gz`. The implementation first creates the tarball with `-unknown` suffix, then renames it after writing the collection data (when the collection key is known). If the rename fails, the tarball keeps the `-unknown` suffix and an error is logged. The index numbering is unaffected by the suffix.
-- **Insight**: Adding the collection key to tarball names makes it possible to identify what data a tarball contains without extracting it -- especially useful now that multiple collector types produce separate tarballs in the same directory.
-
-### Tarball and file filtering by collection name at extraction time
-- **Repo**: ansible/metrics-utility
-- **Commits**: 3b28731 (#227)
-- **What happened**: Following the tarball naming change (#226), extractors and dataframe engines now filter which tarballs to open and which files to extract based on the collection name. Each dataframe engine declares which collections it needs (e.g., `DataframeJobhostSummaryUsage` needs `['job_host_summary', 'main_indirectmanagednodeaudit']`, `DataframeContentUsage` needs `['main_jobevent']`). The `iter_batches()` method gained `collections` and `optional` parameters. `filter_tarball_paths()` in the extract Base class uses regex to match tarball filenames against the requested collections, with backward compatibility for pre-0.7.0 tarballs that lack the collection suffix. `_safe_extract()` also gained an `enabled_set` parameter to skip extracting CSV files from within the tarball that aren't needed. The `indirect_nodes` key in `needed_data` was renamed to `main_indirectmanagednodeaudit` to match the actual collector name.
-- **Insight**: Filtering at two levels (which tarballs to open, and which files to extract from each tarball) provides a multiplicative optimization -- when a dataframe engine only needs `main_jobevent` data, it skips both the tarballs named `*-job_host_summary.tar.gz` and any non-jobevent CSV files inside the opened tarballs.
 
 ### Library storage implementations: Directory, S3, Segment, CRC, CRCMutual
 - **Repo**: ansible/metrics-utility
@@ -312,29 +317,17 @@
 - **What happened**: `StorageSegment.put()` was enhanced to handle data exceeding Segment's size limits (32KB for regular messages, 512MB for bulk). When data exceeds the limit, it is automatically split into chunks using `_split_into_chunks()` (for lists: accumulates items until size limit; for dicts: groups key-value pairs). Each chunk is sent as a separate `analytics.track()` call with `chunk_info` metadata (chunk number, total chunks, chunk size). A `use_bulk` constructor parameter selects between regular and bulk size limits. An `event_name` parameter was added to `put()` (defaulting to `'Metrics Artifact Upload'`).
 - **Insight**: Segment's 32KB per-message limit means anonymized rollup data (which can contain thousands of module/collection stats) must be chunked -- the chunking preserves reassembly metadata (chunk_number/total_chunks) so the receiving end can reconstruct the full payload.
 
-### AWX imports removed from collectors in favor of direct database queries
-- **Repo**: ansible/metrics-utility
-- **Commits**: d005629 (#242), 0799a24 (#245)
-- **What happened**: The collectors module previously imported `awx.conf.license.get_license`, `awx.main.utils.datetime_hook`, `awx.main.utils.get_awx_version`, and `awx.conf.models.Setting` to read license info, Controller version, and last-gathered timestamps. All of these were replaced with direct SQL queries against the `conf_setting` table in `helpers.py`: `get_config_and_settings_from_db()` reads LICENSE and settings keys in one query, `get_controller_version_from_db()` checks conf_setting then falls back to `main_instance`, `get_last_entries_from_db()` reads AUTOMATION_ANALYTICS_LAST_ENTRIES, and a local `datetime_hook()` replaces the AWX import. The `django.conf.settings` references (INSTALL_UUID, SYSTEM_UUID, TOWER_URL_BASE, etc.) were replaced with values from the conf_setting query. PR #245 fixed the mock DB data to include `conf_setting` rows and renamed `conf_settings.sql` to `conf_setting.sql` (matching the actual table name).
-- **Insight**: Removing AWX imports from collectors decouples metrics-utility from the AWX Python package at runtime -- the only dependency is the AWX database schema, which is accessed via raw SQL. This is a step toward running metrics-utility in environments where AWX Python packages are not installed.
-
 ### Setting model provides DB-backed configuration with audit trail
 - **Repo**: ansible/metrics-service
 - **Commits**: f4b136e (#31)
 - **What happened**: A `Setting` model was added to `apps/core/models.py` inheriting from `CommonModel`, `AuditableModel`, and `AccessControlMixin`. It stores `setting_key` (unique), `current_value`, `previous_value`, and `last_modified_by` (FK to User). The `access_qs` classmethod restricts visibility to superusers and system auditors. The model uses DB indexes on `(setting_key, -modified)` and `(last_modified_by, -modified)`. Supporting utility functions `log_setting_change()` and `rollback_configuration_change()` in `apps/core/utils.py` handle change tracking with sensitive value redaction.
 - **Insight**: This architecture creates a dual-layer config system: Dynaconf manages Django settings (env vars, YAML files), while the Setting model tracks runtime changes with who/what/when audit fields. Rollback is implemented by re-setting the Dynaconf value to the previous stored value, which only works for the current process lifetime since DB-tracked changes are not reloaded from files.
 
-### Library collectors: CLI collectors refactored into library with env-var-free interfaces
+### AWX imports removed from collectors in favor of direct database queries
 - **Repo**: ansible/metrics-utility
-- **Commits**: cb36f4e (#248)
-- **What happened**: All CLI collectors were refactored into `metrics_utility/library/collectors/`, split into `controller/` (DB-backed: config, job_host_summary, main_jobevent, unified_jobs, etc.) and `others/` (non-DB: total_workers_vcpu with PrometheusClient). Each collector function takes explicit parameters (`db=`, `since=`, `until=`, `output_dir=` or `output_file=`) instead of reading env vars. The `copy_table()` utility was moved to `library/collectors/util.py` and now supports both `output_dir` (creates CsvFileSplitter internally) and `output_file` (writes to a provided file object), plus optional `params=` for query parameters. The `CsvFileSplitter` was moved from `base/` to `library/` to stop SonarQube from flagging duplicate code. The `@collector` decorator from library creates anonymous collector classes from plain functions, separating initialization (param passing) from execution (`.gather()`).
-- **Insight**: Moving collectors to the library required eliminating all env var reads and filesystem assumptions -- the library's "no env vars, params only" constraint forced a cleaner API where each collector explicitly declares its dependencies (db connection, time range, output target).
-
-### Anonymized rollups restructured: flattened JSON output, vectorized processing, SHA-256 hashing
-- **Repo**: ansible/metrics-utility
-- **Commits**: 07cd17c (#250)
-- **What happened**: The anonymized rollup pipeline was significantly reworked: (1) A `flatten_json_report()` function was added to transform the nested rollup structure (with `events_modules.module_stats`, `events_modules.collection_name_stats`, `jobs.by_template`, etc.) into a flat structure with top-level keys (`module_stats`, `collection_name_stats`, `jobs_by_template`, `job_host_summary`, `statistics`, `modules_used_per_playbook`). Anonymization now operates on the flattened structure. (2) Collection name extraction was vectorized using `str.extract()` with regex instead of `apply()` for performance. (3) The hash algorithm was changed from SHA-512 to SHA-256 to reduce hash output size. (4) Event filtering was moved earlier in the pipeline (before column assignment) to reduce DataFrame size. (5) A column pruning step keeps only needed columns after preparation to save memory. (6) `modules_used_per_playbook` was changed from a dict (`{playbook: count}`) to an array of `{playbook_id, modules_used}` objects. (7) Jobs that never started are now counted (not filtered out). (8) A `total_unique_hosts` and `jobs_total` statistic was added. (9) Multiple-tarball support was added and tested.
-- **Insight**: The flattened JSON structure is easier for downstream consumers to process -- nested structures with varying levels of nesting created ambiguity about where to find specific fields. The SHA-512 to SHA-256 change halves hash size with acceptable collision risk for anonymization purposes. **Supersedes** the SHA-512 hashing from #239.
+- **Commits**: d005629 (#242), 0799a24 (#245)
+- **What happened**: The collectors module previously imported `awx.conf.license.get_license`, `awx.main.utils.datetime_hook`, `awx.main.utils.get_awx_version`, and `awx.conf.models.Setting` to read license info, Controller version, and last-gathered timestamps. All of these were replaced with direct SQL queries against the `conf_setting` table in `helpers.py`: `get_config_and_settings_from_db()` reads LICENSE and settings keys in one query, `get_controller_version_from_db()` checks conf_setting then falls back to `main_instance`, `get_last_entries_from_db()` reads AUTOMATION_ANALYTICS_LAST_ENTRIES, and a local `datetime_hook()` replaces the AWX import. The `django.conf.settings` references (INSTALL_UUID, SYSTEM_UUID, TOWER_URL_BASE, etc.) were replaced with values from the conf_setting query. PR #245 fixed the mock DB data to include `conf_setting` rows and renamed `conf_settings.sql` to `conf_setting.sql` (matching the actual table name).
+- **Insight**: Removing AWX imports from collectors decouples metrics-utility from the AWX Python package at runtime -- the only dependency is the AWX database schema, which is accessed via raw SQL. This is a step toward running metrics-utility in environments where AWX Python packages are not installed.
 
 ### Controller version read from main_instance table only, removing conf_setting fallback
 - **Repo**: ansible/metrics-utility
@@ -342,17 +335,35 @@
 - **What happened**: `get_controller_version_from_db()` previously tried three conf_setting keys (`AWX_VERSION`, `TOWER_VERSION`, `VERSION`) with priority ordering, then fell back to the `main_instance` table. The function was simplified to only query `main_instance` (selecting `version` from the most recently seen enabled instance). The `VERSION` key was also removed from the `get_config_and_settings_from_db()` query since it was no longer needed. A `_fetch_one()` helper was extracted for simple single-value queries. The `main_instance` table was added to the Docker Compose init scripts and CI SQL import for test data.
 - **Insight**: The `main_instance` table is the canonical source for the Controller version (it represents the actual running instance) -- reading from conf_setting was unreliable because those keys were not consistently populated across AWX/Controller versions. **Supersedes** the multi-key conf_setting approach from #242.
 
-### StorageSegment made resilient to missing `segment` package with anonymous tracking
+### Library collectors: CLI collectors refactored into library with env-var-free interfaces
 - **Repo**: ansible/metrics-utility
-- **Commits**: cf644cb (#270)
-- **What happened**: The `segment.analytics` import was wrapped in `try/except ImportError` with a `SEGMENT_AVAILABLE` flag, because the segment package is not installed in the Controller image (only needed by the metrics service). When segment is unavailable, `StorageSegment.put()` returns early with a debug log instead of crashing. The `write_key` check was softened from raising an exception to logging an info message. Additionally, `user_id` was replaced with `anonymous_id` (a random UUID per `put()` call) for event tracking, improving privacy. Comprehensive tests were added covering available/unavailable segment states and edge cases.
-- **Insight**: Library code that runs in multiple deployment contexts (Controller image vs metrics service) must gracefully handle optional dependencies -- wrapping imports in try/except with a feature flag is the standard pattern, but the behavior change (from crash to no-op) must also be tested.
+- **Commits**: cb36f4e (#248)
+- **What happened**: All CLI collectors were refactored into `metrics_utility/library/collectors/`, split into `controller/` (DB-backed: config, job_host_summary, main_jobevent, unified_jobs, etc.) and `others/` (non-DB: total_workers_vcpu with PrometheusClient). Each collector function takes explicit parameters (`db=`, `since=`, `until=`, `output_dir=` or `output_file=`) instead of reading env vars. The `copy_table()` utility was moved to `library/collectors/util.py` and now supports both `output_dir` (creates CsvFileSplitter internally) and `output_file` (writes to a provided file object), plus optional `params=` for query parameters. The `CsvFileSplitter` was moved from `base/` to `library/` to stop SonarQube from flagging duplicate code. The `@collector` decorator from library creates anonymous collector classes from plain functions, separating initialization (param passing) from execution (`.gather()`).
+- **Insight**: Moving collectors to the library required eliminating all env var reads and filesystem assumptions -- the library's "no env vars, params only" constraint forced a cleaner API where each collector explicitly declares its dependencies (db connection, time range, output target).
 
 ### Dead code removed from base Collector: is_enabled, is_dry_run, license checking
 - **Repo**: ansible/metrics-utility
 - **Commits**: 931e6ad (#265)
 - **What happened**: Several methods and attributes were removed from the base `Collector` class: `is_enabled()` (checked license and shipping config), `is_dry_run()`, `_is_valid_license()`, `_last_gathering()`, `_save_last_gather()`, and the `licensed` constructor parameter. These were never overridden with real implementations -- `_is_valid_license` always returned `True`, `_last_gathering` always returned `None`, and `_save_last_gather` was a no-op. The `is_shipping_enabled()` method was replaced with a simple `self.ship` boolean set in `__init__`. The `is_enabled()` guard in `gather()` was removed entirely since it always returned `True`. Confusingly named methods were the root cause: `_is_shipping_configured` (underscored, dead) vs `is_shipping_configured` (public, used), and `last_gathering` (dead) vs `load_last_gathered_entries` (used).
 - **Insight**: After vendoring insights-analytics-collector (#92), the abstract methods that were designed for subclass overriding but never actually overridden became pure dead code -- method pairs with nearly identical names (differing only by underscore prefix or verb form) are a strong signal of dead code.
+
+### Anonymized rollups restructured: flattened JSON output, vectorized processing, SHA-256 hashing
+- **Repo**: ansible/metrics-utility
+- **Commits**: 07cd17c (#250)
+- **What happened**: The anonymized rollup pipeline was significantly reworked: (1) A `flatten_json_report()` function was added to transform the nested rollup structure (with `events_modules.module_stats`, `events_modules.collection_name_stats`, `jobs.by_template`, etc.) into a flat structure with top-level keys (`module_stats`, `collection_name_stats`, `jobs_by_template`, `job_host_summary`, `statistics`, `modules_used_per_playbook`). Anonymization now operates on the flattened structure. (2) Collection name extraction was vectorized using `str.extract()` with regex instead of `apply()` for performance. (3) The hash algorithm was changed from SHA-512 to SHA-256 to reduce hash output size. (4) Event filtering was moved earlier in the pipeline (before column assignment) to reduce DataFrame size. (5) A column pruning step keeps only needed columns after preparation to save memory. (6) `modules_used_per_playbook` was changed from a dict (`{playbook: count}`) to an array of `{playbook_id, modules_used}` objects. (7) Jobs that never started are now counted (not filtered out). (8) A `total_unique_hosts` and `jobs_total` statistic was added. (9) Multiple-tarball support was added and tested.
+- **Insight**: The flattened JSON structure is easier for downstream consumers to process -- nested structures with varying levels of nesting created ambiguity about where to find specific fields. The SHA-512 to SHA-256 change halves hash size with acceptable collision risk for anonymization purposes. **Supersedes** the SHA-512 hashing from #239.
+
+### StorageSegment made resilient to missing `segment` package with anonymous tracking
+- **Repo**: ansible/metrics-utility
+- **Commits**: cf644cb (#270)
+- **What happened**: The `segment.analytics` import was wrapped in `try/except ImportError` with a `SEGMENT_AVAILABLE` flag, because the segment package is not installed in the Controller image (only needed by the metrics service). When segment is unavailable, `StorageSegment.put()` returns early with a debug log instead of crashing. The `write_key` check was softened from raising an exception to logging an info message. Additionally, `user_id` was replaced with `anonymous_id` (a random UUID per `put()` call) for event tracking, improving privacy. Comprehensive tests were added covering available/unavailable segment states and edge cases.
+- **Insight**: Library code that runs in multiple deployment contexts (Controller image vs metrics service) must gracefully handle optional dependencies -- wrapping imports in try/except with a feature flag is the standard pattern, but the behavior change (from crash to no-op) must also be tested.
+
+### Advisory lock extracted from AWX/ansible_base into library/lock.py
+- **Repo**: ansible/metrics-utility
+- **Commits**: 2f14098 (#259)
+- **What happened**: The `_pg_advisory_lock` context manager was duplicated in both `Collector` (base) and `BillingCollector` (subclass), each with slightly different implementations. The base version used `hashlib.sha512` for key hashing and managed its own `db_connection()` call, while the billing collector delegated to `awx.main.utils.pglock.advisory_lock` (with a `try/except ImportError` fallback to `ansible_base.lib.utils.db`). Both were replaced by a single `lock()` function in `metrics_utility/library/lock.py` that uses PostgreSQL's `hashtext()` for key hashing (letting the database do the hashing instead of Python) and takes an explicit `db=` parameter. The AWX/ansible_base imports for advisory_lock were removed entirely. Unit tests were added covering lock acquisition, non-reentrant behavior, and key validation.
+- **Insight**: Moving the advisory lock into the library module with an explicit `db=` parameter eliminates the AWX Python package dependency for locking and makes the lock function usable by both the CLI and the external metrics service. **Supersedes** the `try/except ImportError` AWX-vs-ansible_base approach from #51 and #94.
 
 ### Library published to PyPI with weekly date-based versioning
 - **Repo**: ansible/metrics-utility
@@ -365,12 +376,6 @@
 - **Commits**: 0854775 (#40)
 - **What happened**: The metrics collection tasks (`collect_config_metrics`, `collect_anonymous_metrics`, etc.) were changed from accepting a `db` connection string parameter to using Django's `connections` API. Each task now calls `connections[db_name]` where `db_name` defaults to `"awx"`, and the AWX database is configured in `DATABASES` settings. The connection object is passed directly to metrics-utility collectors.
 - **Insight**: Using Django's database routing (`DATABASES` dict + `connections[]`) for cross-service data access is cleaner than raw connection strings -- it gets connection pooling, SSL config, and lifecycle management for free. The `awx` database entry in settings can be overridden with `METRICS_SERVICE_DATABASES__awx__HOST` etc. via Dynaconf.
-
-### Advisory lock extracted from AWX/ansible_base into library/lock.py
-- **Repo**: ansible/metrics-utility
-- **Commits**: 2f14098 (#259)
-- **What happened**: The `_pg_advisory_lock` context manager was duplicated in both `Collector` (base) and `BillingCollector` (subclass), each with slightly different implementations. The base version used `hashlib.sha512` for key hashing and managed its own `db_connection()` call, while the billing collector delegated to `awx.main.utils.pglock.advisory_lock` (with a `try/except ImportError` fallback to `ansible_base.lib.utils.db`). Both were replaced by a single `lock()` function in `metrics_utility/library/lock.py` that uses PostgreSQL's `hashtext()` for key hashing (letting the database do the hashing instead of Python) and takes an explicit `db=` parameter. The AWX/ansible_base imports for advisory_lock were removed entirely. Unit tests were added covering lock acquisition, non-reentrant behavior, and key validation.
-- **Insight**: Moving the advisory lock into the library module with an explicit `db=` parameter eliminates the AWX Python package dependency for locking and makes the lock function usable by both the CLI and the external metrics service. **Supersedes** the `try/except ImportError` AWX-vs-ansible_base approach from #51 and #94.
 
 ### Anonymized rollups refactored: tarball loading replaced with direct CSV file input
 - **Repo**: ansible/metrics-utility
@@ -402,17 +407,17 @@
 - **What happened**: The five dataframe classes (`DataframeJobhostSummaryUsage`, `DataframeContentUsage`, `DataframeInventoryScope`, `DataframeCollectionStatus`, `DBDataframeHostMetric`) were moved from `metrics_utility/automation_controller_billing/dataframe_engine/` to `metrics_utility/library/dataframes/`. The monolithic stub `library/dataframes.py` was replaced with a `library/dataframes/` package. Data loading (tarball extraction, batch iteration) was split from data transformation logic: the library classes contain the pure transform logic (`merge`, `group`, `regroup`, `dedup`, `empty`, column definitions), while the CLI-side classes retain `iter_batches` and `build_dataframe` which orchestrate loading from extractors. A `BaseDataframe` provides the merge template method using `unique_index_columns`, `data_columns`, `operations`, and `cast_types` -- simpler dataframes (collection status, host metric) override `merge` with plain `pd.concat`. The `build_dataframe` method now saves results to `self.rollup` in addition to returning them. The deduplicator parameter was made explicit (passed to `dedup()` rather than read from env vars).
 - **Insight**: Moving dataframes to the library required cleanly separating "how data is loaded" (extractor-specific, stays in CLI) from "how data is transformed" (pure pandas logic, goes to library) -- the library classes must not know about tarballs, S3, or extractors.
 
-### Anonymized rollup data structure changed from flat DataFrame to dict with totals
-- **Repo**: ansible/metrics-utility
-- **Commits**: 0a7c054 (#288)
-- **What happened**: The `EventModulesAnonymizedRollup` and `JobHostSummaryAnonymizedRollup` classes changed their internal data passing from flat DataFrames to dicts containing both a total count and the aggregated data. For events: `prepare()` now returns `{'event_total': int, 'task_summary': DataFrame}` instead of just a DataFrame. For job host summary: `prepare()` returns `{'jobhostsummary_total': int, 'aggregated': DataFrame}`. The `merge()` methods were overridden in both classes to handle the new dict structure (summing totals, concatenating DataFrames). The `base()` methods were updated to unpack the dict and include totals in the output JSON. The `BaseAnonymizedRollup.merge()` was also updated to handle `None` as the initial value (first batch). The `save_rollup()` method gained support for scalar values (int, float, str, bool) by wrapping them in a dict before JSON serialization.
-- **Insight**: When a rollup needs metadata about the full input (total record count before filtering/aggregation), that metadata must be tracked alongside the data through prepare/merge/base -- adding it as a column in the DataFrame would be lost during groupby operations, so a dict wrapper is the right pattern.
-
 ### Library `anonymize` module removed from top-level library exports to fix circular import
 - **Repo**: ansible/metrics-utility
 - **Commits**: f9ee5d9 (#284)
 - **What happened**: The `metrics_utility/library/__init__.py` previously imported and exported the `anonymize` submodule. This was removed because the `anonymize` module imports from `metrics_utility/anonymized_rollups/` which is outside the library, creating a circular import path when the library was imported from within the anonymized rollups code. The `anonymize` module is still accessible via direct import (`from metrics_utility.library.anonymize import ...`) but is no longer auto-imported when the library package is loaded.
 - **Insight**: When a library submodule re-exports code from outside the library boundary, it should not be auto-imported in the library's `__init__.py` -- this creates circular import chains when the outside code also imports from the library.
+
+### Anonymized rollup data structure changed from flat DataFrame to dict with totals
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0a7c054 (#288)
+- **What happened**: The `EventModulesAnonymizedRollup` and `JobHostSummaryAnonymizedRollup` classes changed their internal data passing from flat DataFrames to dicts containing both a total count and the aggregated data. For events: `prepare()` now returns `{'event_total': int, 'task_summary': DataFrame}` instead of just a DataFrame. For job host summary: `prepare()` returns `{'jobhostsummary_total': int, 'aggregated': DataFrame}`. The `merge()` methods were overridden in both classes to handle the new dict structure (summing totals, concatenating DataFrames). The `base()` methods were updated to unpack the dict and include totals in the output JSON. The `BaseAnonymizedRollup.merge()` was also updated to handle `None` as the initial value (first batch). The `save_rollup()` method gained support for scalar values (int, float, str, bool) by wrapping them in a dict before JSON serialization.
+- **Insight**: When a rollup needs metadata about the full input (total record count before filtering/aggregation), that metadata must be tracked alongside the data through prepare/merge/base -- adding it as a column in the DataFrame would be lost during groupby operations, so a dict wrapper is the right pattern.
 
 ### Retrofit prep: massive cleanup and app restructuring before platform-service-framework alignment
 - **Repo**: ansible/metrics-service
@@ -486,12 +491,6 @@
 - **What happened**: The `metrics_service run` management command was rewritten to spawn three separate OS processes (Django runserver, dispatcherd, task scheduler) instead of managing them via threads and the `ProcessManager` service class. The `ProcessManager` class (341 lines) was deleted entirely. The new approach uses `subprocess.Popen` with `selectors.DefaultSelector` for non-blocking I/O multiplexing of stdout from all three processes. Signal handlers (`SIGINT`, `SIGTERM`) terminate all child processes with a 3-second grace period before SIGKILL. The `--check-interval` argument was added for configuring the scheduler's DB polling interval.
 - **Insight**: The thread-based approach had issues with infinite loops in tests, complex shutdown coordination, and output interleaving. The process-based approach is simpler conceptually (each service is a separate process with its own stdin/stdout) and more robust (process termination is OS-level, not cooperative). The `selectors` module provides cross-platform non-blocking I/O without threading overhead.
 
-### Unified metrics_service management command as single entry point
-- **Repo**: ansible/metrics-service
-- **Commits**: c6947ce (#14), edb4626 (#25)
-- **What happened**: A single `metrics_service` management command (`apps/core/management/commands/metrics_service.py`) was created that can run the full service (Django server + dispatcherd + task scheduler in parallel threads), initialize service IDs, init system tasks, and manage task groups. In edb4626 this grew to 900+ lines before being refactored into the service layer.
-- **Insight**: The "one command to rule them all" pattern (`python manage.py metrics_service run`) is convenient for development but the monolithic command became a complexity sink. The subsequent service layer extraction was necessary to make it manageable.
-
 ### Anonymized rollups rethought: grouping by job type instead of template, new collectors added
 - **Repo**: ansible/metrics-utility
 - **Commits**: 456eb0f (#319)
@@ -540,17 +539,17 @@
 - **What happened**: Several field names in the anonymized rollup output were renamed to be more descriptive for external consumers: `dark_total` became `unreachable_total`, `failures_total` became `failed_total`, `collections_versions` became `jobs_by_installed_collections_versions`, and `job_count` inside collection version entries expanded to include `jobs_total`, `jobs_failed_total`, `jobs_successful_total`, duration breakdowns, and template/inventory totals. The `job_type_total` field (count of distinct job types) was removed as redundant -- the `job_types` list already provides this information. A `jobs_by_controller_version` grouping was added, with controller version injected from the `controller_version_service` collector into all job groupings.
 - **Insight**: When designing JSON output for external consumers, use descriptive field names (`unreachable_total`, `failed_total`) rather than DB column names (`dark`, `failures`) -- external consumers shouldn't need to know that Ansible internally calls unreachable hosts "dark".
 
+### `Unknown` collection source renamed to `Custom` in anonymized rollups
+- **Repo**: ansible/metrics-utility
+- **Commits**: e35a93b (#343)
+- **What happened**: Collections not found in the `collections.json` lookup (not community, validated, or certified) were previously labeled `"Unknown"` in the anonymized rollup output. This was renamed to `"Custom"` throughout: `collection_source` classification, anonymization replacement strings, and test assertions. The rationale is that unknown collections are typically customer-written custom content, not truly "unknown" -- the label `Custom` better describes what they are. **Supersedes** the `"Unknown"` string replacement from #319.
+- **Insight**: Choosing semantically accurate labels for classification categories matters for downstream analytics -- `Custom` is actionable information (customer-written content), while `Unknown` implies a data quality problem.
+
 ### job_host_summary_service: ensure_functions and host variable parsing removed
 - **Repo**: ansible/metrics-utility
 - **Commits**: 457f4a2 (#347)
 - **What happened**: The `job_host_summary_service` collector previously included CTEs for `filtered_hosts` and `hosts_variables` that joined against `main_host` to extract `ansible_host_variable` and `ansible_connection_variable` via the `metrics_utility_is_valid_json` and `metrics_utility_parse_yaml_field` custom PostgreSQL functions. These CTEs and the `ensure_functions(db)` call (which created those functions) were removed entirely. The columns `ansible_host_variable` and `ansible_connection_variable` were dropped from the collector output. This simplification was possible because the service collectors feed into anonymized rollups which don't need host variable deduplication -- only the billing/CCSP collectors need `ansible_host` for managed node counting.
 - **Insight**: The service-oriented collectors can be simpler than the billing collectors because they serve different downstream needs: billing needs host variable parsing for dedup, while anonymized rollups aggregate by job type and don't need per-host identity resolution. Removing `ensure_functions` also eliminates the need for write access to the database (CREATE FUNCTION). **Extends** the custom PostgreSQL functions pattern from #16/#24.
-
-### Debug tooling for anonymization pipeline
-- **Repo**: ansible/metrics-service
-- **Commits**: 26614c4 (#113)
-- **What happened**: Debug scripts added under `tools/tasks/`: `run_anon.sh` (full pipeline), `dump_hourly.py`, `dump_daily_anonymized.py`. `run_task.py` moved from `scripts/` to `tools/tasks/`.
-- **Insight**: Provides end-to-end pipeline validation without real deployment or Segment credentials. See `metrics_collection.md` for how these scripts fit into the anonymization pipeline.
 
 ### Installed collections cache key changed from SHA-256 hash to execution_environment_id
 - **Repo**: ansible/metrics-utility
@@ -563,6 +562,12 @@
 - **Commits**: 60d7f32 (#348)
 - **What happened**: `StorageSegment.put()` gained a `segment_meta` parameter (dict) that is passed through to each `analytics.track()` call as keyword arguments. When `segment_meta` contains a `message_id`, each chunk gets a unique derived `message_id` computed as `sha256(f'{message_id}_{chunk_index}')`. This enables Segment's deduplication (same message_id = same event) while ensuring chunks are individually identifiable. The `segment_meta` dict can also carry a `timestamp` for controlling event ordering. The `**segment_meta` is unpacked into the `analytics.track()` call alongside the existing `anonymous_id`, `event`, and `properties` arguments.
 - **Insight**: When sending chunked data to an event pipeline with deduplication (like Segment), derive per-chunk message IDs from the parent message ID plus chunk index -- this ensures retries are idempotent (same chunk = same ID) while keeping chunks distinct from each other.
+
+### Debug tooling for anonymization pipeline
+- **Repo**: ansible/metrics-service
+- **Commits**: 26614c4 (#113)
+- **What happened**: Debug scripts added under `tools/tasks/`: `run_anon.sh` (full pipeline), `dump_hourly.py`, `dump_daily_anonymized.py`. `run_task.py` moved from `scripts/` to `tools/tasks/`.
+- **Insight**: Provides end-to-end pipeline validation without real deployment or Segment credentials. See `metrics_collection.md` for how these scripts fit into the anonymization pipeline.
 
 ### `library/collectors/service/` package for metrics-service-database collectors
 - **Repo**: ansible/metrics-utility
@@ -599,12 +604,6 @@
 - **Commits**: 828c8c1 (#372), 4474a6c (#383)
 - **What happened**: The `use_bulk` constructor parameter and `BULK_MESSAGE_LIMIT` (500MB) were removed from `StorageSegment` in #372 -- all messages now use the regular 24KB chunk limit. The chunking algorithm was also improved: instead of summing separate item sizes (which underestimates because it ignores the wrapping `{key: [...]}` structure), the new code builds a trial `{key: active_chunk[key] + [item]}` and measures the full JSON size before deciding to split. In #383, `analytics.sync_mode = True` was enabled to fix silent event loss: Segment's SDK batches `track()` calls into background HTTP POSTs that silently drop events when the batch exceeds 500KB (returning HTTP 200 with no error). sync_mode sends each `track()` as a separate blocking HTTP request, eliminating both the batch-size and background-thread race condition problems. Gzip compression was also tried but Segment silently rejects gzip-encoded bodies.
 - **Insight**: When a third-party SDK silently drops data on oversized batches and provides no reliable way to estimate true per-event overhead, sync_mode (one HTTP request per event) is the only reliable approach. **Supersedes** the `use_bulk` option from #249 and extends the chunking fixes from #281.
-
-### `Unknown` collection source renamed to `Custom` in anonymized rollups
-- **Repo**: ansible/metrics-utility
-- **Commits**: e35a93b (#343)
-- **What happened**: Collections not found in the `collections.json` lookup (not community, validated, or certified) were previously labeled `"Unknown"` in the anonymized rollup output. This was renamed to `"Custom"` throughout: `collection_source` classification, anonymization replacement strings, and test assertions. The rationale is that unknown collections are typically customer-written custom content, not truly "unknown" -- the label `Custom` better describes what they are. **Supersedes** the `"Unknown"` string replacement from #319.
-- **Insight**: Choosing semantically accurate labels for classification categories matters for downstream analytics -- `Custom` is actionable information (customer-written content), while `Unknown` implies a data quality problem.
 
 ### Health endpoint status vocabulary aligned with AAP platform constants
 - **Repo**: ansible/metrics-service

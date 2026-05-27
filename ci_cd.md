@@ -1,5 +1,4 @@
 # CI/CD
-
 ### Initial CI: super-linter with many validators disabled
 - **Repo**: ansible/metrics-utility
 - **Commits**: fe07c0e (#21)
@@ -198,17 +197,17 @@
 - **What happened**: The `.coderabbit.yaml` was updated to add `auto_review.base_branches: [FB-Automation-Dashboard]`, enabling CodeRabbit auto-reviews on PRs targeting the `FB-Automation-Dashboard` feature branch (in addition to the default main/devel branches).
 - **Insight**: For long-lived feature branches with their own PR flow, CodeRabbit needs explicit branch configuration. The `auto_review.base_branches` setting controls which target branches trigger automated code review.
 
-### pr-checks workflow gained PostgreSQL service for makemigrations check
-- **Repo**: ansible/metrics-service
-- **Commits**: e941270 (#126)
-- **What happened**: The `pr-checks.yml` workflow was updated to include a PostgreSQL service container (same pattern as the pytest workflow) with Dynaconf-style database env vars (`METRICS_SERVICE_DATABASES__default__HOST`, etc.) on the "Check for missing migrations" step. Previously, `makemigrations --check` ran without a database, which would fail for any migration that references database-specific features.
-- **Insight**: Django's `makemigrations` needs a database connection when using PostgreSQL-specific features (like `JSONField` default validation). Adding PostgreSQL to `pr-checks` mirrors the `pytest.yml` setup and ensures the migration check runs against the same database engine as production.
-
 ### SonarCloud workflow reorganized: scan removed from pytest, dedicated to sonar_checks
 - **Repo**: ansible/metrics-service
 - **Commits**: 24681be (#127), 1dedd90 (#128), c4add8a (#134)
 - **What happened**: Three related changes reorganized SonarCloud integration. #127 expanded `sonar.sources` from just `metrics_service` to `metrics_service,apps` (so the `apps/` directory is scanned too) and simplified the coverage exclusion pattern from `metrics_service/tests/**, tests/**` to `**/tests/**`. #128 removed the on-push SonarCloud scan step from `pytest.yml` entirely -- push-based SonarCloud was duplicating the PR-based scan. #134 re-added the push-based SonarCloud scan to `pytest.yml` (gated with `if: github.event_name == 'push'`) because devel branch pushes need coverage published without the PR workflow. The PR SonarCloud workflow (`sonar_checks.yml`) was also hardened: the unreliable `commits/{sha}/pulls` API validation was replaced with direct branch/SHA/repo matching against the triggering workflow_run, and all downstream steps now gate on a `should_scan` output instead of checking PR state separately. The `octokit/request-action` dependency was removed in favor of direct curl/jq.
 - **Insight**: The SonarCloud setup settled on a clear split: push events (devel/main) get scanned inline in `pytest.yml`, while PR events use the two-workflow `workflow_run` pattern in `sonar_checks.yml`. The PR validation was fragile because the `commits/{sha}/pulls` API can return empty results for recently pushed commits due to GitHub's eventual consistency -- validating branch name + SHA + repo is more reliable.
+
+### pr-checks workflow gained PostgreSQL service for makemigrations check
+- **Repo**: ansible/metrics-service
+- **Commits**: e941270 (#126)
+- **What happened**: The `pr-checks.yml` workflow was updated to include a PostgreSQL service container (same pattern as the pytest workflow) with Dynaconf-style database env vars (`METRICS_SERVICE_DATABASES__default__HOST`, etc.) on the "Check for missing migrations" step. Previously, `makemigrations --check` ran without a database, which would fail for any migration that references database-specific features.
+- **Insight**: Django's `makemigrations` needs a database connection when using PostgreSQL-specific features (like `JSONField` default validation). Adding PostgreSQL to `pr-checks` mirrors the `pytest.yml` setup and ensures the migration check runs against the same database engine as production.
 
 ### Ruff pre-commit hooks added for auto-fixing lint and format
 - **Repo**: ansible/metrics-service
