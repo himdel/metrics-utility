@@ -27,9 +27,9 @@ For each upstream repo, run steps 1–5 below before moving to the next repo. Th
 
 - Read `README.md` in the learnings checkout — the "Last commit processed" table has one row per repo
 - Find the row for this upstream repo to get its last processed commit hash
-- In the upstream checkout, list new commits:
-  - If the repo has no row yet, this is a first run: `git log --oneline --reverse --no-merges`
-  - Otherwise: `git log --oneline --reverse --no-merges <last_hash>..HEAD`
+- In the upstream checkout, list new commits on the **devel branch only** — never include commits from unmerged feature branches:
+  - If the repo has no row yet, this is a first run: `git log --oneline --reverse --no-merges devel`
+  - Otherwise: `git log --oneline --reverse --no-merges <last_hash>..devel`
 - If no new commits, report "learnings are up to date for <repo>" and skip to the next repo
 
 ### 2. Bulk-fetch PR data
@@ -55,6 +55,7 @@ You are extracting learnings from git history. Process these commits from
 - You CAN read and write learnings files in <LEARNINGS_PATH>
 - You CAN read the PR data temp file
 - Read existing learnings files BEFORE writing — append, don't overwrite
+- Do NOT update README.md — only the consolidation step (step 4) touches it
 - Skip trivial dependabot bumps
 - For large diffs, skip lockfiles, focus on meaningful changes
 - Include `- **Repo**: <UPSTREAM_REPO>` in each entry
@@ -78,7 +79,7 @@ You are extracting learnings from git history. Process these commits from
 ## Context: [include relevant context about what the commits cover]
 ```
 
-Process batches sequentially (oldest first) so later commits can supersede earlier ones.
+Process batches **sequentially** (oldest first) so later commits can supersede earlier ones. Never run batches in parallel — they write to the same files and will clobber each other.
 
 ### 4. Consolidation
 
@@ -99,3 +100,11 @@ Process batches sequentially (oldest first) so later commits can supersede earli
 See `README.md` on the `_learnings` branch for the full index of topic files. This includes per-repo files (`metrics_utility.md`, `metrics_service.md`) for repo-specific patterns, and cross-cutting topic files for shared concerns.
 
 Create new topic files only if a commit clearly doesn't fit any existing one. Update the README index when adding new files.
+
+## Ordering
+
+Entries within each topic file must be in **chronological order by commit date**, interleaving entries from different repos as needed. When adding entries from the second repo, look up commit dates (`git log -1 --format=%ai <hash>`) and insert them at the correct position relative to existing entries.
+
+## Full reprocessing (rare)
+
+If you ever need to reprocess one repo from scratch, strip the other repo's entries first, process clean, then reconcile by merging both sets back in chronological order. Keep the other repo's tracking table row so it doesn't get re-processed.
