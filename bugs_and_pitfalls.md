@@ -1,28 +1,28 @@
 # Bugs and Pitfalls
 
-### Missing `__init__.py` files when adding new subpackages
-- **Repo**: ansible/metrics-utility
-- **Commits**: 858b2e5 (#10)
-- **What happened**: PR #9 added several new subdirectories (`dataframe_engine/`, `extract/`, `package/`, `report/`) but forgot to include `__init__.py` files. PR #10 was an immediate follow-up fix adding the four missing init files. The `package/` directory was created by refactoring a single `package.py` file into a `package/` subpackage.
-- **Insight**: When converting a module file (e.g. `package.py`) into a subpackage directory (`package/`), always remember the `__init__.py` -- this is easy to miss since the old single-file module didn't need one.
-
 ### Leftover `print()` statement shipped in production code
 - **Repo**: ansible/metrics-utility
 - **Commits**: ba08a25 (#6)
 - **What happened**: The billing feature PR (#5) included a `print(since, until)` debugging statement in the gather command. It was caught and removed in a follow-up PR the same day.
 - **Insight**: Debug print statements in CLI tools are particularly visible since the output goes directly to users; review for stray prints before merging.
 
-### Report generation crashes on empty billing data
-- **Repo**: ansible/metrics-utility
-- **Commits**: 958e924 (#11)
-- **What happened**: The `build_report` command did not check for `None` or empty dataframes before passing them to the report engine, causing crashes when no billing data existed for the requested month. The fix added an early return with an informational log message.
-- **Insight**: Always guard against empty result sets when building reports from collected data -- months with no automation activity are a valid scenario.
-
 ### SQL query used `<=` instead of `<` for the upper time bound
 - **Repo**: ansible/metrics-utility
 - **Commits**: 6e60790 (#9)
 - **What happened**: The job_host_summary SQL query originally used `modified <= until` for the upper bound. PR #9 changed this to `modified < until` to correctly implement exclusive upper bounds, preventing records from being included in two adjacent daily slices.
 - **Insight**: Time-range queries with daily slicing must use exclusive upper bounds (`<`) to avoid double-counting records at slice boundaries.
+
+### Missing `__init__.py` files when adding new subpackages
+- **Repo**: ansible/metrics-utility
+- **Commits**: 858b2e5 (#10)
+- **What happened**: PR #9 added several new subdirectories (`dataframe_engine/`, `extract/`, `package/`, `report/`) but forgot to include `__init__.py` files. PR #10 was an immediate follow-up fix adding the four missing init files. The `package/` directory was created by refactoring a single `package.py` file into a `package/` subpackage.
+- **Insight**: When converting a module file (e.g. `package.py`) into a subpackage directory (`package/`), always remember the `__init__.py` -- this is easy to miss since the old single-file module didn't need one.
+
+### Report generation crashes on empty billing data
+- **Repo**: ansible/metrics-utility
+- **Commits**: 958e924 (#11)
+- **What happened**: The `build_report` command did not check for `None` or empty dataframes before passing them to the report engine, causing crashes when no billing data existed for the requested month. The fix added an early return with an informational log message.
+- **Insight**: Always guard against empty result sets when building reports from collected data -- months with no automation activity are a valid scenario.
 
 ### Multipart dataframe merges lost data when columns existed in both halves
 - **Repo**: ansible/metrics-utility
@@ -72,17 +72,23 @@
 - **What happened**: The `_get_extractor_directory()` and `_get_extractor_controller_db()` methods in the extractor factory both had the comment `# Return default S3 loader`, which was copy-pasted from `_get_extractor_s3()`. These were corrected to `# Return default directory loader` and `# Return default DB loader` respectively.
 - **Insight**: Copy-pasted comments that describe the wrong behavior are worse than no comments at all -- they actively mislead during debugging.
 
-### Unreachable hosts were being counted as managed nodes in CCSP billing
-- **Repo**: ansible/metrics-utility
-- **Commits**: db4eeea (#79)
-- **What happened**: When a host had all tasks in `unreachable`/`dark` state (no successful, failed, skipped, ignored, or rescued tasks), it was still being counted as a managed node in the CCSP billing report. The fix adds a `reachable_task_runs` column that sums all task counters except `dark`, then filters out rows where `reachable_task_runs == 0`. This changed all snapshot test reference files since some test data included unreachable hosts.
-- **Insight**: For billing purposes, a host that was never actually reached by any task should not count as a "managed node" -- the `dark` counter in Ansible represents connection failures, not automation.
-
 ### build_report error message didn't distinguish month vs date range
 - **Repo**: ansible/metrics-utility
 - **Commits**: 3c1dc4d (#63)
 - **What happened**: When no billing data was found, `build_report` always logged "No billing data for month: {opt_month}" even when `--since`/`--until` date range parameters were used (in which case `opt_month` would be `None` or misleading). The fix checks whether `opt_since` was provided and formats the message accordingly: either "No billing data for input date range {since}--{until}" or "No billing data for month {month}".
 - **Insight**: Error messages should reflect the actual input mode used -- a generic message that assumes one calling convention confuses users of another.
+
+### Tests used hardcoded absolute paths from a specific developer's environment
+- **Repo**: ansible/metrics-utility
+- **Commits**: edfe31c (#74)
+- **What happened**: All CCSP/CCSPv2 report tests (including the newly added complex test from PR #70) hardcoded paths like `/awx_devel/awx-dev/metrics-utility/metrics_utility/test/test_data` for `METRICS_UTILITY_SHIP_PATH` and expected output files. These paths only existed in one developer's AWX development environment. The fix changed them to relative paths (`./metrics_utility/test/test_data`). Additionally, the complex CCSPv2 test was named `complex_test_CCSPv2.py` which pytest doesn't discover by default (requires `test_` prefix); it was renamed to `test_complex_CCSPv2.py`.
+- **Insight**: Hardcoded absolute paths from a development environment are a silent CI failure risk -- tests appear to be added but never actually run until someone tries to enable them in a different environment.
+
+### Unreachable hosts were being counted as managed nodes in CCSP billing
+- **Repo**: ansible/metrics-utility
+- **Commits**: db4eeea (#79)
+- **What happened**: When a host had all tasks in `unreachable`/`dark` state (no successful, failed, skipped, ignored, or rescued tasks), it was still being counted as a managed node in the CCSP billing report. The fix adds a `reachable_task_runs` column that sums all task counters except `dark`, then filters out rows where `reachable_task_runs == 0`. This changed all snapshot test reference files since some test data included unreachable hosts.
+- **Insight**: For billing purposes, a host that was never actually reached by any task should not count as a "managed node" -- the `dark` counter in Ansible represents connection failures, not automation.
 
 ### advisory_lock import using find_spec was fragile, switched to try/except
 - **Repo**: ansible/metrics-utility
@@ -114,12 +120,6 @@
 - **What happened**: All three dataframe engines (`DataframeJobhostSummaryUsage`, `DataframeContentUsage`, `DataframeInventoryScope`) returned `None` when no data was found. Downstream code (report builders, filters, sheet generators) then crashed with `AttributeError` or `TypeError` when trying to operate on `None`. The fix changed all engines to return `pd.DataFrame(columns=self.data_columns() + self.unique_index_columns())` instead of `None`, providing an empty DataFrame with the correct schema. This also simplified downstream checks from `if df is not None and not df.empty` to just `if not df.empty`. A comprehensive test (`test_empty_data_for_CCSP_and_CCSPv2.py`) was added that runs every combination of report type, date range, and optional sheet with empty data.
 - **Insight**: Returning `None` to signal "no data" from a function that normally returns a DataFrame forces every caller to check for `None` -- returning an empty DataFrame with the correct columns is safer and enables uniform downstream handling.
 
-### Tests used hardcoded absolute paths from a specific developer's environment
-- **Repo**: ansible/metrics-utility
-- **Commits**: edfe31c (#74)
-- **What happened**: All CCSP/CCSPv2 report tests (including the newly added complex test from PR #70) hardcoded paths like `/awx_devel/awx-dev/metrics-utility/metrics_utility/test/test_data` for `METRICS_UTILITY_SHIP_PATH` and expected output files. These paths only existed in one developer's AWX development environment. The fix changed them to relative paths (`./metrics_utility/test/test_data`). Additionally, the complex CCSPv2 test was named `complex_test_CCSPv2.py` which pytest doesn't discover by default (requires `test_` prefix); it was renamed to `test_complex_CCSPv2.py`.
-- **Insight**: Hardcoded absolute paths from a development environment are a silent CI failure risk -- tests appear to be added but never actually run until someone tries to enable them in a different environment.
-
 ### `self.help` dict in Command.__init__ shadowed Django BaseCommand's `help` class attribute
 - **Repo**: ansible/metrics-utility
 - **Commits**: f2b5a83 (#128), 81b3744 (#141)
@@ -137,6 +137,24 @@
 - **Commits**: a3dbd4f (#146)
 - **What happened**: After #141 moved `handle_env_validation` into `handle()`, it was placed at the top of `handle()` before `init_logging()`. Since the logger wasn't initialized yet, any validation error messages would not be properly logged. PR #146 moved `handle_env_validation` *after* `init_logging()` inside `_handle()`, ensuring the logger is set up before validation runs.
 - **Insight**: Validation that reports errors via logging must run after the logger is initialized -- ordering within `handle()` matters just as much as being in `handle()` at all. **Supersedes** the ordering from #141.
+
+### SQL `NOW()` in test data scripts produced non-deterministic timestamps
+- **Repo**: ansible/metrics-utility
+- **Commits**: e65b320 (#145)
+- **What happened**: The `main_jobhostsummary.sql` test data script used `NOW()` for `created`, `modified`, and other timestamp columns. This caused non-deterministic test data -- each time the script ran, timestamps changed, making gather tests flaky (they filter by time range). The fix replaced all `NOW()` calls with fixed timestamps (`TIMESTAMP WITH TIME ZONE '2025-06-13 10:00:00+00'`).
+- **Insight**: Test data SQL scripts must use fixed timestamps, not `NOW()` -- gather collectors filter by time range, so non-deterministic timestamps cause the same data to appear or disappear depending on when the test runs.
+
+### `logger.propagate = True` caused duplicate log output after adding custom handler
+- **Repo**: ansible/metrics-utility
+- **Commits**: 42464e0 (#142)
+- **What happened**: The `build_report` command's `init_logging` added a custom `StreamHandler` to the `awx.main.analytics` logger but left `propagate = True` (set in an earlier PR). This caused log messages to be emitted twice -- once by the custom handler and once by the root logger. The fix set `propagate = False`, matching the pre-#128 behavior.
+- **Insight**: When adding a custom handler to a named logger, set `propagate = False` to prevent the parent/root logger from also emitting the same messages.
+
+### `report_period` vs `report_period_range` confusion caused KeyError for renewal guidance
+- **Repo**: ansible/metrics-utility
+- **Commits**: cda736f (#149)
+- **What happened**: The report system had two separate date range params: `report_period` (set to `opt_month`) passed as a constructor arg to Report classes, and `report_period_range` (set to `"since, until"`) inside `extra_params`. `ReportFactory` would overwrite `report_period` with `report_period_range` when present. But `ReportRenewalGuidance` used `extra_params['report_period_range']` directly, which didn't exist when `--month` was used, causing a KeyError. The fix unified both into a single `extra_params['report_period']`, set to `opt_month` for `--month` or `"since, until"` for `--since`.
+- **Insight**: Having two overlapping config keys for the same concept (`report_period` as constructor arg and `report_period_range` in extra_params) creates confusion and KeyError bugs -- unify to a single key.
 
 ### `fetch_command` import errors were silently swallowed, now logged and re-raised
 - **Repo**: ansible/metrics-utility
@@ -156,11 +174,29 @@
 - **What happened**: When `--until` was set to a specific date (e.g., `2025-07-23`), it was parsed as midnight (start of day), meaning the entire last day's data was excluded. The fix adds `until.replace(hour=23, minute=59, second=59, microsecond=999999)` in `_calculate_collection_interval()` to extend the until boundary to end-of-day, ensuring all data from the specified date is included.
 - **Insight**: When users specify `--until=2025-07-23`, they expect data from July 23 to be included -- setting the time to end-of-day matches user expectations for date-only parameters.
 
+### Dockerfile referenced non-existent paths
+- **Repo**: ansible/metrics-service
+- **Commits**: dd5603f
+- **What happened**: The initial Dockerfile had `COPY requirements/requirements.in /tmp/requirements.in` but the repo had `requirements.txt` at the root, not `requirements/requirements.in`. The Docker build would fail at this step.
+- **Insight**: Template Dockerfiles must be tested with `docker build` before the initial commit. This was fixed two days later in e0bfd65.
+
 ### METRICS_UTILITY_OPTIONAL_COLLECTORS set to whitespace caused validation failure
 - **Repo**: ansible/metrics-utility
 - **Commits**: c050e54 (#178)
 - **What happened**: When `METRICS_UTILITY_OPTIONAL_COLLECTORS` was set to a whitespace string (e.g., `" "` or `""`), the validation split it by comma resulting in `['']`, and empty string was not in `VALID_COLLECTORS`. Since empty string is a valid edge case that should default to "all collectors", the fix added `''` to the `VALID_COLLECTORS` set.
 - **Insight**: When an env var uses comma-separated values, always consider the empty/whitespace case -- `"".split(",")` returns `[""]` not `[]`, so empty string must be a valid value if the env var can be set to blank.
+
+### Environment variable casing inconsistency persisted across multiple files
+- **Repo**: ansible/metrics-service
+- **Commits**: be51903, 5e05775
+- **What happened**: When renaming from `my_service` to `metrics_service`, the env vars were initially lowercased (`metrics_service_DB_HOST`) instead of uppercased (`METRICS_SERVICE_DB_HOST`). A follow-up commit fixed the most important ones but left several still lowercase (e.g., `metrics_service_REDIS_URL`, `metrics_service_ALLOWED_HOSTS` in docker-compose.yml and k8s manifests).
+- **Insight**: A find-and-replace renaming operation across a codebase is error-prone when the original naming was ALL_CAPS and the new name is mixed_case. The inconsistency means some env vars work and others silently don't, since `metrics_service_FOO` and `METRICS_SERVICE_FOO` are different variables.
+
+### Docker port variable used wrong casing
+- **Repo**: ansible/metrics-service
+- **Commits**: be51903
+- **What happened**: `docker-compose.yml` used `${metrics_service_PORT:-8000}` instead of `${METRICS_SERVICE_PORT:-8000}` for the port mapping. Shell variables are case-sensitive, so this would only work if the lowercase version was set.
+- **Insight**: Docker Compose variable interpolation (`${VAR}`) is case-sensitive. Using inconsistent casing between documentation and actual config means the documented env vars won't work.
 
 ### JSON collector returning None still generated an empty tarball
 - **Repo**: ansible/metrics-utility
@@ -180,23 +216,23 @@
 - **What happened**: In #86, `process_tarballs` was refactored from a standalone function (taking `self` as a regular parameter) to a method on the Base class. `ExtractorDirectory` was updated to call `self.process_tarballs(path, temp_dir)`, but `ExtractorS3` was missed and still called `self.process_tarballs(self, s3_path, temp_dir)`, passing `self` twice (once implicit, once explicit), causing `TypeError: process_tarballs() takes 3 positional arguments but 4 were given`. The S3 code path was presumably untested at the time.
 - **Insight**: When refactoring a function into a method, search for all call sites across every subclass -- callers that pass `self` explicitly will only fail at runtime for the specific subclass that was missed, and only if that code path is exercised.
 
-### `logger.propagate = True` caused duplicate log output after adding custom handler
+### Renewal guidance dedup classes crashed on None dataframe instead of empty result
 - **Repo**: ansible/metrics-utility
-- **Commits**: 42464e0 (#142)
-- **What happened**: The `build_report` command's `init_logging` added a custom `StreamHandler` to the `awx.main.analytics` logger but left `propagate = True` (set in an earlier PR). This caused log messages to be emitted twice -- once by the custom handler and once by the root logger. The fix set `propagate = False`, matching the pre-#128 behavior.
-- **Insight**: When adding a custom handler to a named logger, set `propagate = False` to prevent the parent/root logger from also emitting the same messages.
+- **Commits**: 6467590 (#194)
+- **What happened**: `DedupRenewal.run()` assumed `self.dataframe` was always a valid DataFrame and called `self._cleanup_null_values()` on it directly. When `ExtractorControllerDB` returned `None` or an empty DataFrame, the dedup would crash with `AttributeError`. `DedupRenewalHostname` and `DedupRenewalExperimental` already had `if self.dataframe.empty` guards, but these would still crash on `None`. The fix added `if self.dataframe is None or self.dataframe.empty` checks to all three dedup classes, returning `{'host_metric': pd.DataFrame()}` for the empty case.
+- **Insight**: All code that receives a dataframe from an extractor or factory must handle both `None` and empty DataFrame -- even if the upstream was "fixed" to return empty DataFrames (#118), defensive checks in consumers prevent regression if upstream behavior changes.
 
-### SQL `NOW()` in test data scripts produced non-deterministic timestamps
-- **Repo**: ansible/metrics-utility
-- **Commits**: e65b320 (#145)
-- **What happened**: The `main_jobhostsummary.sql` test data script used `NOW()` for `created`, `modified`, and other timestamp columns. This caused non-deterministic test data -- each time the script ran, timestamps changed, making gather tests flaky (they filter by time range). The fix replaced all `NOW()` calls with fixed timestamps (`TIMESTAMP WITH TIME ZONE '2025-06-13 10:00:00+00'`).
-- **Insight**: Test data SQL scripts must use fixed timestamps, not `NOW()` -- gather collectors filter by time range, so non-deterministic timestamps cause the same data to appear or disappear depending on when the test runs.
+### Sonar fix introduced copy-paste bug in "Result Data" label
+- **Repo**: ansible/metrics-service
+- **Commits**: cc2ac77, 5b12d74 (#7)
+- **What happened**: When extracting `_show_dependencies` and `_show_dependents` helper methods from `show_task`, the "Result Data" label was accidentally changed to "Task Data" (duplicating the label from two lines above). Fixed one commit later.
+- **Insight**: Method extraction refactors that are done to satisfy code complexity metrics (Sonar) without careful review can introduce bugs. The fix was trivial but the bug was a classic copy-paste error.
 
-### `report_period` vs `report_period_range` confusion caused KeyError for renewal guidance
-- **Repo**: ansible/metrics-utility
-- **Commits**: cda736f (#149)
-- **What happened**: The report system had two separate date range params: `report_period` (set to `opt_month`) passed as a constructor arg to Report classes, and `report_period_range` (set to `"since, until"`) inside `extra_params`. `ReportFactory` would overwrite `report_period` with `report_period_range` when present. But `ReportRenewalGuidance` used `extra_params['report_period_range']` directly, which didn't exist when `--month` was used, causing a KeyError. The fix unified both into a single `extra_params['report_period']`, set to `opt_month` for `--month` or `"since, until"` for `--since`.
-- **Insight**: Having two overlapping config keys for the same concept (`report_period` as constructor arg and `report_period_range` in extra_params) creates confusion and KeyError bugs -- unify to a single key.
+### Exception chaining missing (bare raise from)
+- **Repo**: ansible/metrics-service
+- **Commits**: 5b12d74 (#7)
+- **What happened**: Multiple `except` blocks in `manage_tasks.py` raised new `CommandError` exceptions without chaining from the original exception. The ruff fix added `from e` to preserve the exception chain (e.g., `raise CommandError(f"Invalid JSON data: {e}") from e`).
+- **Insight**: Python's exception chaining (`raise X from Y`) preserves the traceback of the original exception. Without it, the original traceback is lost, making debugging harder. Ruff's `B904` rule catches this automatically.
 
 ### ExtractorS3 passed S3 remote path to local tarball extraction, causing FileNotFoundError
 - **Repo**: ansible/metrics-utility
@@ -210,17 +246,41 @@
 - **What happened**: After #194 added validation that `RENEWAL_GUIDANCE` requires `controller_db` ship target, the validation ran for both `build` and `gather` commands. But `METRICS_UTILITY_REPORT_TYPE` is only meaningful for `build_report` -- gather collects raw data regardless of report type. Setting `METRICS_UTILITY_REPORT_TYPE=RENEWAL_GUIDANCE` with `METRICS_UTILITY_SHIP_TARGET=directory` would fail gather with "Only controller_db is allowed for RENEWAL_GUIDANCE", even though gather doesn't use report_type at all. The fix made `validate_report_type` return `None` immediately when `method == 'gather'`, skipping all report type validation for the gather command.
 - **Insight**: When adding cross-cutting validation that references one command's settings (report_type is build-only), always check whether the validation is appropriate for other commands -- env vars used by one command may be set in the environment but irrelevant to other commands.
 
-### Renewal guidance dedup classes crashed on None dataframe instead of empty result
-- **Repo**: ansible/metrics-utility
-- **Commits**: 6467590 (#194)
-- **What happened**: `DedupRenewal.run()` assumed `self.dataframe` was always a valid DataFrame and called `self._cleanup_null_values()` on it directly. When `ExtractorControllerDB` returned `None` or an empty DataFrame, the dedup would crash with `AttributeError`. `DedupRenewalHostname` and `DedupRenewalExperimental` already had `if self.dataframe.empty` guards, but these would still crash on `None`. The fix added `if self.dataframe is None or self.dataframe.empty` checks to all three dedup classes, returning `{'host_metric': pd.DataFrame()}` for the empty case.
-- **Insight**: All code that receives a dataframe from an extractor or factory must handle both `None` and empty DataFrame -- even if the upstream was "fixed" to return empty DataFrames (#118), defensive checks in consumers prevent regression if upstream behavior changes.
+### PostgreSQL port mapping mismatch in CI
+- **Repo**: ansible/metrics-service
+- **Commits**: cb58dc0 (#11), e9ff8c9 (#27)
+- **What happened**: The initial pytest workflow mapped PostgreSQL port `55432:55432` but the PostgreSQL container internally listens on 5432 by default, not 55432. This was eventually fixed in e9ff8c9 to use the standard `5432:5432` mapping. Meanwhile, the Django test settings used `METRICS_SERVICE_DB_PORT: 5432` (the internal port), which worked because GitHub Actions services expose ports on localhost.
+- **Insight**: The non-standard port 55432 was used in docker-compose to avoid conflicts with local PostgreSQL, but in CI there's no local PostgreSQL to conflict with. Using standard ports in CI is simpler and less error-prone. The mismatch between the port mapping (`55432:55432`) and the Django env var (`5432`) worked accidentally because Docker network routing still connected to the container's 5432 internal port.
+
+### CodeQL workflow was actually a copy of the pytest workflow
+- **Repo**: ansible/metrics-service
+- **Commits**: 7e90a26 (#15), cc53a70 (#16)
+- **What happened**: A file named `codeql.yml` was committed but its contents were a complete copy of the pytest workflow. Reverted 5 minutes later.
+- **Insight**: Copy-paste error in CI workflow creation. See `ci_cd.md` for the full entry.
 
 ### config.json billing_provider_params were saved to tarball before being updated
 - **Repo**: ansible/metrics-utility
 - **Commits**: a88a277 (#217)
 - **What happened**: The billing collector's `gather()` method called `_gather_json_collections()` (which writes config.json into the tarball) and only afterward appended `billing_provider_params` to the config collection data. This meant the config.json inside tarballs shipped to CRC was missing the billing provider params (account ID, org ID, etc.). The fix moved the billing_provider_params injection into an overridden `_gather_config()` method that runs *during* JSON collection gathering (before the data is saved to tarball), by calling `super()._gather_config()` first and then extending the config data.
 - **Insight**: When extending collected data with additional fields, the extension must happen during the collection phase (by overriding the appropriate gather method), not after -- otherwise the data is already serialized to the tarball without the extensions.
+
+### GitHub Actions workflow permissions missing on initial creation
+- **Repo**: ansible/metrics-service
+- **Commits**: f848024 (#24), e5eba36 (#30)
+- **What happened**: The sync-requirements workflow was created without explicit permissions in f848024. A follow-up commit e5eba36 (next day, different author) had to add `permissions: contents: write` and `pull-requests: write` because the workflow needed to commit changes and comment on PRs.
+- **Insight**: GitHub Actions workflows that write to the repo or interact with PRs need explicit permissions. This is easy to miss because permissions errors only surface at runtime, not during PR review. Always test CI workflows that do write operations on a real push/PR before merging.
+
+### Sonar-driven refactoring of task validation created unnecessary complexity
+- **Repo**: ansible/metrics-service
+- **Commits**: da91648 (#29)
+- **What happened**: The `validate_task_groups()` function in `task_groups.py` was refactored from a simple inline loop into two extracted helper functions (`_validate_task_id` and `_validate_required_fields`) to satisfy Sonar's complexity/cognitive-complexity metrics. The refactored code is more lines and arguably harder to follow than the original inline validation.
+- **Insight**: Code complexity metrics (Sonar's cognitive complexity) can incentivize extracting functions that don't need extraction. Simple validation loops don't benefit from being split into multiple functions when the original is clear and self-contained.
+
+### Organization model extra_field changed from null=True to default=""
+- **Repo**: ansible/metrics-service
+- **Commits**: da91648 (#29)
+- **What happened**: The `extra_field` on `Organization` was changed from `CharField(max_length=100, null=True, blank=True)` to `CharField(max_length=100, blank=True, default="")`. This required a new migration.
+- **Insight**: This follows the Django convention that CharField should use `default=""` instead of `null=True`, because having two possible "empty" values (NULL and "") for a text field is confusing. Sonar likely flagged this as a code smell.
 
 ### Double JSON encoding of AUTOMATION_ANALYTICS_LAST_ENTRIES caused AttributeError
 - **Repo**: ansible/metrics-utility
@@ -246,17 +306,29 @@
 - **What happened**: PR #274 changed the Docker Compose PostgreSQL exposed port from `5432:5432` to `5433:5432` and added a `METRICS_UTILITY_DB_PORT` env var (defaulting to `5433`) to avoid conflicting with a locally running PostgreSQL instance. This broke CI (which uses native PostgreSQL on port 5432) and changed the default for all existing users. The change was reverted 15 minutes later in PR #276.
 - **Insight**: Changing default ports in shared development infrastructure requires coordination -- a default that works for one developer's local setup (avoiding port conflicts) breaks CI and other developers who expect the standard port. If port configurability is needed, keep the default at the standard port and let the developer who needs a different port set the env var.
 
+### metrics-utility collector import paths changed with temporary aliases
+- **Repo**: ansible/metrics-service
+- **Commits**: 10581e9 (#42)
+- **What happened**: When upgrading to `metrics-utility==0.7.20251112`, the import paths changed from `metrics_utility.library.collectors` to `metrics_utility.library.collectors.controller`. The collector function names also changed (e.g., `anonymous` became `job_host_summary`), requiring `as` aliases to maintain backward compatibility. A TODO comment was added: "The AS is just a filler till this is corrected with a later PR."
+- **Insight**: Dependency upgrades that change public APIs create confusing alias layers. The aliases mean the code says `anonymous` but actually calls `job_host_summary` -- a debugging nightmare. The TODO suggests this was a quick fix to unblock the Django upgrade, with a proper refactor planned later.
+
+### dispatcherd use_django_db broke local testing and was reverted next day
+- **Repo**: ansible/metrics-service
+- **Commits**: 6059d8c (#45), 3a8f7d5 (#48)
+- **What happened**: `config/dispatcherd.yaml` changed to `use_django_db: true`, reverted next day because it didn't work for local development testing.
+- **Insight**: See `docker_and_deployment.md` for the full three-iteration saga of dispatcherd DB config. The PR was titled just "Fix" with no description, making it hard to find later.
+
 ### Missing `__init__.py` in `anonymized_rollups/` subpackage (third occurrence)
 - **Repo**: ansible/metrics-utility
 - **Commits**: dbb7426 (#278)
 - **What happened**: The `metrics_utility/anonymized_rollups/` directory was created across multiple PRs (#215, #239, #250) but never received an `__init__.py` file. PR #278 added it with explicit `__all__` exports for all rollup classes and functions. Additionally, a `metrics_utility/library/anonymize/` package was added with an `__init__.py` exposing `anonymized_rollups_processor` as the library entry point.
 - **Insight**: This is the third time this exact bug occurred in the project (after #10 and #25) -- new subpackages are created without `__init__.py`. The pattern persists because the code works in development (where the directory is on `sys.path`) but fails when imported as a package.
 
-### `collections.json` loaded with hardcoded relative path, broke when CWD changed
-- **Repo**: ansible/metrics-utility
-- **Commits**: 0118135 (#287)
-- **What happened**: `EventModulesAnonymizedRollup.__init__` opened `collections.json` using a hardcoded relative path: `open('metrics_utility/anonymized_rollups/collections.json')`. This worked when running from the project root but broke when the current working directory was different (e.g., when called from the metrics service or from within a tempdir). The fix used `os.path.join(os.path.dirname(__file__), 'collections.json')` to load the file relative to the module's own location.
-- **Insight**: Never use hardcoded relative paths to load package data files -- use `os.path.dirname(__file__)` or `importlib.resources` to resolve paths relative to the module, since the working directory is not guaranteed to be the project root.
+### Django signals on Task model caused widespread test failures
+- **Repo**: ansible/metrics-service
+- **Commits**: a044bd7 (#54)
+- **What happened**: The `post_save` signal added in edb4626 (#25) automatically routes newly saved Task objects to dispatcherd. In tests, `Task.objects.create()` triggered this signal, causing failures because dispatcherd wasn't running. Five test files needed refactoring to use `_create_task_safely()` which sets `_skip_signals = True` before saving.
+- **Insight**: Adding Django signals to models creates implicit side effects that affect every code path that creates/saves the model, including tests. The `_skip_signals` convention is a pragmatic workaround, but it means tests don't exercise the actual save behavior. A better pattern might be to check for a "testing" mode or use a factory function that explicitly opts into or out of signals.
 
 ### Segment chunking algorithm broke on real data: metadata overhead and dict-vs-list handling
 - **Repo**: ansible/metrics-utility
@@ -264,11 +336,53 @@
 - **What happened**: The `StorageSegment._split_into_chunks()` method had multiple issues with real anonymized rollup data: (1) The 32KB `REGULAR_MESSAGE_LIMIT` was the raw Segment limit, but the actual message includes metadata (anonymous_id, event_name, timestamp, chunk_info) that consumes space. The limit was reduced from 32KB to 24KB (and 512MB to 500MB) to leave room. (2) The chunking algorithm handled lists and dicts with separate code paths (`_split_dict_into_chunks`) that didn't match the actual data shape -- the anonymized rollup data is a dict whose values are either dicts (statistics, small) or lists (module_stats, potentially large). The rewrite iterates dict entries: dict values become one chunk each, list values are split item-by-item into size-limited chunks, and the entire payload is returned as a single chunk if it fits. (3) The old code had a `_split_dict_into_chunks` fallback that printed warnings to stderr instead of raising errors -- the rewrite raises on unexpected types. The test data was moved to a separate `testing_data_for_segment.py` file.
 - **Insight**: Size-limited chunking for API payloads must account for the envelope metadata overhead (auth tokens, timestamps, chunk metadata) -- using the raw API limit as the chunk size causes the final serialized message to exceed the limit. **Extends** the chunking from #249 with practical fixes.
 
+### `collections.json` loaded with hardcoded relative path, broke when CWD changed
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0118135 (#287)
+- **What happened**: `EventModulesAnonymizedRollup.__init__` opened `collections.json` using a hardcoded relative path: `open('metrics_utility/anonymized_rollups/collections.json')`. This worked when running from the project root but broke when the current working directory was different (e.g., when called from the metrics service or from within a tempdir). The fix used `os.path.join(os.path.dirname(__file__), 'collections.json')` to load the file relative to the module's own location.
+- **Insight**: Never use hardcoded relative paths to load package data files -- use `os.path.dirname(__file__)` or `importlib.resources` to resolve paths relative to the module, since the working directory is not guaranteed to be the project root.
+
+### Recurring task dependent tasks never triggered due to status reset ordering
+- **Repo**: ansible/metrics-service
+- **Commits**: e43d59d (#59)
+- **What happened**: In `execute_db_task()`, `handle_post_execution()` was called *after* the recurring task status was reset from "completed" to "pending". Since `handle_post_execution` checks `task.status == 'completed'` to trigger dependent tasks, they would never fire for recurring tasks. The fix moved `handle_post_execution()` before the status reset.
+- **Insight**: State machine bugs where operations happen in the wrong order relative to a status change are subtle and hard to catch in code review. The fix is a simple line reorder, but discovering the bug requires understanding the full call chain and what each function checks.
+
+### dispatcherd YAML had hardcoded database credentials instead of using Django settings
+- **Repo**: ansible/metrics-service
+- **Commits**: 0e15cbd (#66)
+- **What happened**: `config/dispatcherd.yaml` had hardcoded `dbname`, `user`, `password`, `host`, `port` values. A new `_load_config_with_django_db()` function was added to `dispatcherd_config.py` that loads the YAML config file but overrides the database broker section with values from `django.conf.settings.DATABASES["default"]`. This is the third iteration of solving the dispatcherd DB config problem (after `use_django_db: true` which was reverted, and explicit YAML values which hardcoded credentials).
+- **Insight**: The correct solution combines both approaches: load non-DB config from the YAML file (channels, queue routing, logging) but always inject DB connection from Django settings. This way, `METRICS_SERVICE_DATABASES__default__*` env vars work correctly through Dynaconf -> Django settings -> dispatcherd config, providing a single source of truth for database configuration.
+
+### Immediate tasks submitted multiple times due to missing tracking before execution
+- **Repo**: ansible/metrics-service
+- **Commits**: 3100514 (#64)
+- **What happened**: The unified scheduler's periodic DB sync found pending immediate tasks and executed them, but didn't add them to `_db_task_jobs` tracking dict until after execution. The next polling cycle would see the same pending task (not yet completed by dispatcherd) and submit it again, causing duplicates. The fix was a single line: `self._db_task_jobs[task.id] = f"db_immediate_{task.id}"` added before the execution call.
+- **Insight**: When switching from an event-driven architecture (signals, triggered once) to a polling architecture (periodic check), you must track what you've already processed *before* processing it, not after. The polling loop doesn't know whether a previous iteration already handled a given item unless it checks a tracking set.
+
+### URL prefix env var named inconsistently, fixed in follow-up PR
+- **Repo**: ansible/metrics-service
+- **Commits**: 2efdae3 (#69), a64071c (#70)
+- **What happened**: PR #69 added a `METRICS_URL_PREFIX` env var to the dashboard view so the API base URL could include a gateway prefix. PR #70 (two days later, same author) renamed it to `METRICS_SERVICE_URL_PREFIX` for consistency with the project's env var naming convention (`METRICS_SERVICE_*`). The fix was a one-line change.
+- **Insight**: The project's Dynaconf convention is that all env vars use the `METRICS_SERVICE_` prefix. A raw `os.getenv("METRICS_URL_PREFIX")` bypass doesn't follow this convention and would confuse operators. This was the kind of quick fix that should have been caught in code review -- naming consistency is a systematic concern, not a one-off decision.
+
 ### Missing utf-8 encoding on CSV read/write caused Unicode errors with non-ASCII data
 - **Repo**: ansible/metrics-utility
 - **Commits**: a3f00ba (#302)
 - **What happened**: Several `pd.read_csv()` and `df.to_csv()` calls throughout the codebase did not specify `encoding='utf-8'`. While Python 3 defaults to the system locale encoding (usually UTF-8 on Linux), this could cause `UnicodeDecodeError` in environments with different locale settings, or when CSV data contained non-ASCII characters (e.g., organization names, hostnames with special characters). The fix added `encoding='utf-8'` to `pd.read_csv()` in `load_anonymized_rollup_data()`, `_read_csv()` in the extract base, and to `df.to_csv()` in test helpers. A variable name bug from a merge conflict in `load_anonymized_rollup_data` was also fixed.
 - **Insight**: Always specify `encoding='utf-8'` explicitly on CSV operations in data pipelines that handle user-generated content (hostnames, org names, template names) -- relying on the system default encoding is fragile across deployment environments.
+
+### SettingSerializer referenced non-existent view after retrofit
+- **Repo**: ansible/metrics-service
+- **Commits**: d180ae8 (#74)
+- **What happened**: After the platform-service-framework retrofit (#73), `SettingSerializer` was still a `HyperlinkedModelSerializer` with `extra_kwargs = {"url": {"view_name": "api:v1:settings-detail"}}`. But the dynamic_settings API uses a singleton pattern without individual detail endpoints, so the referenced view didn't exist. The fix changed it to a plain `ModelSerializer` and removed the `url` field entirely.
+- **Insight**: When migrating from `HyperlinkedModelSerializer` to app-owned URL patterns, every serializer that references a `view_name` must be audited. The retrofit changed URL namespacing but didn't catch this serializer, causing runtime errors when the `url` field was rendered. Singleton/non-CRUD resources shouldn't use `HyperlinkedModelSerializer` since they lack detail endpoints.
+
+### Framework validation workflow too strict, removed immediately
+- **Repo**: ansible/metrics-service
+- **Commits**: 00e68ad (#84), 5be118c (#88)
+- **What happened**: PR #84 added a `framework-validation.yml` GitHub Actions workflow that runs the platform-service-framework's CLI validator, which compares repo files against the framework template. PR #88 (the very next business day, different author) deleted the workflow because it compared files like `.gitignore`, `manage.py`, `pyproject.toml`, and `settings.local.py` against the template and failed on any differences. Since the service had legitimately customized these files, the validator was impractical.
+- **Insight**: Framework compliance validators that do exact file-content comparison are too brittle for real services. Any service-specific customization causes false failures. Validation should check structural patterns (presence of required files, import paths) rather than file identity.
 
 ### vCPU timestamps lacked UTC timezone indicator, causing ambiguous time interpretation
 - **Repo**: ansible/metrics-utility
@@ -276,11 +390,35 @@
 - **What happened**: The `total_workers_vcpu` collector produced ISO 8601 timestamps with `+00:00` suffix (e.g., `2023-01-01T10:00:00+00:00`), but downstream consumers expected the `Z` suffix for UTC (e.g., `2023-01-01T10:00:00.000Z`). The fix changed all `datetime.fromtimestamp().isoformat()` calls to use `isoformat(timespec='milliseconds').replace('+00:00', 'Z')`. Additionally, the hour boundary calculation was changed from `current_hour_start - 1` (ending at `:59:59`) to `current_hour_start - 0.001` (ending at `:59:59.999`), and the PromQL query range was extended from `59m59s` to `59m59s999ms` to match the millisecond precision.
 - **Insight**: When producing timestamps for external APIs that expect RFC 3339 / ISO 8601, use `Z` suffix instead of `+00:00` for UTC -- while semantically equivalent, many consumers only recognize the `Z` form. Also ensure timestamp precision is consistent across boundaries (milliseconds in timestamps should match milliseconds in query ranges).
 
+### Dockerfile labels referenced wrong product name (metrics-utility instead of metrics-service)
+- **Repo**: ansible/metrics-service
+- **Commits**: 4b2bc5e (#94), 7c8c0c0 (#99)
+- **What happened**: Labels had `com.redhat.component="metrics-utility"` from copy-paste. Fixed in #94, then the CPE regressed back to `metrics_utility` in #99 during Konflux label reformatting.
+- **Insight**: See `docker_and_deployment.md` for the full label evolution. Labels don't affect build/runtime behavior, so errors aren't caught by CI. Each label field should be reviewed independently during updates.
+
+### AppConfig.ready() writing to database causes RuntimeWarning on every Django invocation
+- **Repo**: ansible/metrics-service
+- **Commits**: e137d39 (#92)
+- **What happened**: `DynamicSettingsConfig.ready()` was initializing default feature flag settings by writing to the database. Django emits a `RuntimeWarning` about this: "Accessing the database during app initialization is discouraged." The `ready()` method runs on every Django invocation -- not just server start, but also management commands, `shell`, `migrate`, tests, etc. This caused unnecessary DB writes and warnings during migrations and test runs.
+- **Insight**: `AppConfig.ready()` is for signal registration and lightweight setup, not database writes. Use an explicit management command (like `init-default-settings`) for DB initialization. This ensures initialization happens exactly when intended (in entrypoints, after migrations) rather than on every Django process start.
+
+### DRF router registration order caused URL conflict for /tasks/executions/
+- **Repo**: ansible/metrics-service
+- **Commits**: e137d39 (#92)
+- **What happened**: In `apps/tasks/v1/urls.py`, `TaskViewSet` was registered before `TaskExecutionViewSet`. Since `TaskViewSet` used a catch-all pattern (`r""`), DRF's router matched `/tasks/executions/` as a TaskViewSet detail view with `pk='executions'` instead of routing to `TaskExecutionViewSet`. The fix was to register `TaskExecutionViewSet` before `TaskViewSet`. Two tests had been skipped (via `@pytest.mark.skip`) to work around this bug rather than fixing it.
+- **Insight**: DRF routers match patterns in registration order, so more specific patterns must be registered first. This is the router equivalent of the "most specific route first" rule in URL configuration. The skipped tests were actually correct and identifying a real bug.
+
 ### `pg_class.reltuples` unreliable for row count estimation, switched to `pg_stat_user_tables.n_live_tup`
 - **Repo**: ansible/metrics-utility
 - **Commits**: c225bdf (#329)
 - **What happened**: The `table_metadata` collector initially used `pg_class.reltuples` for estimated row counts. This was unreliable: `reltuples` returns -1 for tables that have never been analyzed, returns stale values between ANALYZE runs, and for partitioned tables required summing across partitions via `pg_inherits`. The fix switched to `pg_stat_user_tables.n_live_tup` which is maintained by PostgreSQL's statistics collector continuously and provides more current estimates. The join was changed from `pg_class` directly to `pg_class LEFT JOIN pg_stat_user_tables ON st.relid = p.oid`.
 - **Insight**: When querying PostgreSQL system catalogs for row count estimates, prefer `pg_stat_user_tables.n_live_tup` over `pg_class.reltuples` -- the former is updated by the background statistics collector while the latter is only updated by ANALYZE/VACUUM, making it stale or -1 on never-analyzed tables.
+
+### generic_collect_metrics status not reset on update_or_create
+- **Repo**: ansible/metrics-service
+- **Commits**: 1580ff2 (#109)
+- **What happened**: When re-collecting metrics for a previously processed time slot, `update_or_create` only set `raw_data` in `defaults` but not `status="collected"`. If the record already existed with `status="processed"`, the update kept the old status. The daily rollup then couldn't see the re-collected data because it filters by `status="collected"`.
+- **Insight**: Django's `update_or_create` applies `defaults` on both create and update, but only for the fields listed in `defaults`. Omitting state machine fields like `status` means they retain their previous value on update, which can break downstream processes that filter by state.
 
 ### NumPy types and numeric IDs caused JSON serialization failures in anonymized rollups
 - **Repo**: ansible/metrics-utility
@@ -312,11 +450,29 @@
 - **What happened**: The `_calculate_sum_from_list()` helper function returned `None` when given an empty list, which propagated null values into statistics fields like `rollup_period_organizations_total` and `rollup_period_forks_total`. Similarly, `jobs.get('organizations_total')` and `jobs.get('forks_total')` could be `None`. The fixes: (1) changed `_calculate_sum_from_list` to return `0` instead of `None` for empty lists, and (2) added `or 0` fallbacks at the call sites for fields read from the jobs dict.
 - **Insight**: Aggregation helper functions should return `0` (not `None`) for empty inputs when the result is a count or sum -- `None` propagates through arithmetic and comparisons in unexpected ways, while `0` is the correct identity element for addition.
 
+### DailyMetricsRollup missing base() call after merge
+- **Repo**: ansible/metrics-service
+- **Commits**: 35c3db5 (#138)
+- **What happened**: The daily metrics rollup was merging hourly rollup JSON via `rollup_processor.merge()` but never calling `rollup_processor.base()` on the merged result. The `base()` method performs post-merge cleanup and extra computation that some collectors require. The function was refactored: `_merge_rollup_json` and `_aggregate_collector_rollups` were consolidated into a single `_merge_collects` function that calls `merge()` in a loop, then `base()` on the result, extracting the `"json"` key from the base output. Tests were updated to assert `base()` is called and the `"json"` key is extracted.
+- **Insight**: The rollup API contract is `merge(json, json) -> json` followed by `base(merged) -> {"json": result}`. Missing the `base()` call meant collectors that need post-processing (e.g., computing derived fields from merged data) would produce incomplete rollups. This bug could go unnoticed because the merged data still looks valid -- it's just missing the final transformations that `base()` provides.
+
+### Dispatcherd max workers reduced to 1 was a band-aid; real fix was atomic claims and advisory locks
+- **Repo**: ansible/metrics-service
+- **Commits**: 9a0feaa (#148), ccf9494 (#167)
+- **What happened**: Workers reduced from 4 to 1 as band-aid for race conditions (#148), then restored to 4 with proper atomic claims, advisory locks, and retry delays (#167).
+- **Insight**: See `task_system.md` "Workers restored to 4 with atomic task claiming and advisory locks" for the full arc. Reducing concurrency is a valid emergency measure but should always be treated as temporary.
+
 ### ID column conversion used `apply(lambda)` per row, replaced with vectorized `pd.to_numeric`
 - **Repo**: ansible/metrics-utility
 - **Commits**: b7037cf (#350)
 - **What happened**: The `JobsAnonymizedRollup._convert_id_columns_to_strings()` method used `dataframe[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) and x == int(x) else x)` to convert ID columns to strings. This was slow for large DataFrames and raised `SettingWithCopyWarning` in some cases. The fix replaced it with vectorized pandas operations: `pd.to_numeric(errors='coerce')` to coerce values, a boolean mask for non-null rows, then `astype(int).astype(str)` on the masked subset. Similarly, filtering unfinished jobs changed from `dataframe[dataframe['finished'].notna()]` (which may return a view) to `dataframe.dropna(subset=['finished'])` (which always returns a new DataFrame), avoiding `SettingWithCopyWarning` on subsequent mutations.
 - **Insight**: When converting DataFrame columns, prefer vectorized pandas operations (`pd.to_numeric`, `astype`, `dropna`) over `apply(lambda)` -- vectorized operations are 10-100x faster and avoid `SettingWithCopyWarning` issues with DataFrame views vs copies.
+
+### Titlecased task names in logs made them harder to search
+- **Repo**: ansible/metrics-service
+- **Commits**: 26614c4 (#113)
+- **What happened**: The `task_execution_wrapper` in `apps/tasks/utils.py` was calling `.title()` on task names in error messages (e.g., `f"{task_name.title()} task failed: ..."`). This was changed to use the raw task name (e.g., `f"{task_name} task failed: ..."`).
+- **Insight**: Titlecasing identifiers in log messages breaks grep-based log searching. If a task is named `cleanup_old_tasks`, searching for that string in logs won't find the titlecased `Cleanup_Old_Tasks` variant. Log messages should use the canonical identifier exactly as it appears in code and configuration.
 
 ### Pandas 2.2+/3.x: assigning string values to int64 column triggers StringArray coercion error
 - **Repo**: ansible/metrics-utility
@@ -324,15 +480,110 @@
 - **What happened**: The `JobsAnonymizedRollup._convert_id_columns_to_strings()` method assigned `numeric[mask].astype(int).astype(str)` into `dataframe.loc[mask, col]` where the column was originally int64. In pandas 2.2+/3.x, this produced a StringArray which pandas then tried to cast back to int64, causing a coercion error. The fix: (1) cast the column to `object` dtype first with `dataframe[col] = dataframe[col].astype(object)`, and (2) use `numeric[mask].to_numpy(dtype=float).astype(int).astype(str)` to produce a plain numpy array instead of a StringArray. Additionally, the `_get_collection_cache_key` NaN check was simplified from `isinstance(ee_id, float) and pd.isna(ee_id)` to just `pd.isna(ee_id)`, since `pd.isna()` handles all nullable types.
 - **Insight**: When assigning string values back into a DataFrame column that was originally numeric, first cast the column to `object` dtype to prevent pandas from trying to coerce the new StringArray values back to the original numeric dtype. **Extends** the vectorized ID conversion from #350.
 
-### Segment event loss: sync_mode=True is the only reliable delivery method
-- **Repo**: ansible/metrics-utility
-- **Commits**: 4474a6c (#383)
-- **What happened**: Segment's Python SDK batches `track()` calls into background HTTP POSTs, and silently drops events from batches exceeding 500KB (returning HTTP 200 with no error callback). Three approaches were tried: (1) `time.sleep` after flush -- race condition, process exits before background thread finishes; (2) batch size tracking with mid-loop `flush()` at 450KB -- still dropped events because the SDK adds 2-3KB of per-event metadata (context, timestamps, messageId, integrations) that the data-size estimate couldn't account for; (3) `analytics.sync_mode = True` -- sends each `track()` as a separate blocking HTTP request (~25KB each), eliminating both the batch-size and background-thread problems. End-to-end testing confirmed 15/15 chunks delivered reliably. Gzip compression was also tried but Segment silently rejects gzip-encoded bodies (HTTP 200, 0 events received).
-- **Insight**: When a third-party analytics SDK silently drops events from oversized batches and provides no reliable way to estimate the true per-event overhead, sync_mode (one HTTP request per event) is the only reliable delivery method, even at the cost of higher latency.
-
 ### `date_where()` double-quoting broke qualified column names in PostgreSQL
 - **Repo**: ansible/metrics-utility
 - **Commits**: 04e583a (#353)
 - **What happened**: The `date_where()` utility wrapped field names in double quotes (`"table.column"`), but in PostgreSQL `"table.column"` is treated as a single identifier (a column literally named `table.column`), not as a qualified reference. Six collectors manually interpolated since/until timestamps instead of using `date_where()` because of this bug. The fix removed the quoting (all callers pass hardcoded internal strings, so SQL injection is not a concern here) and added runtime validation that since/until are timezone-aware datetimes, catching naive datetimes or wrong types early rather than generating incorrect SQL.
 - **Insight**: In PostgreSQL, `"table.column"` is a single quoted identifier, not a table-qualified column reference -- never wrap qualified column names in double quotes. When a utility function has a known bug, callers work around it by duplicating the logic inline, creating a hidden maintenance cost.
 
+### Retry of hourly collection collected wrong hour because it used timezone.now()
+- **Repo**: ansible/metrics-service
+- **Commits**: da19df3 (#160)
+- **What happened**: If a collector task failed and was retried hours later, `timezone.now()` shifted the "previous hour" calculation, silently collecting the wrong time window.
+- **Insight**: Time-sensitive tasks must capture their target time window at dispatch time, not execution time. See `metrics_collection.md` "Collection timestamps pinned at dispatch time" for the fix pattern.
+
+### Task execution records stuck in "pending" because execution_id not propagated
+- **Repo**: ansible/metrics-service
+- **Commits**: d81dfb3 (#162)
+- **What happened**: `submit_task_to_dispatcher` created a `TaskExecution` record but only passed `task_id` (not `execution_id`) in the dispatcherd kwargs. The worker received `execution_id=None` and never updated the execution record. Fix: capture the execution object and pass `execution_id=execution.id` in kwargs.
+- **Insight**: When creating a tracking record in one process and updating it in another, the record's ID must be explicitly passed across the boundary. This is easy to miss when the "create" and "update" happen in different functions with different authors.
+
+### Cron schedule collision: cleanup and rollup both ran at 2:00 AM
+- **Repo**: ansible/metrics-service
+- **Commits**: d24e7dc (#163)
+- **What happened**: `daily_task_cleanup` (deletes old TaskExecution records) and `daily_metrics_rollup` (writes to TaskExecution via FK) both ran at `0 2 * * *`. When simultaneous, cleanup could delete records that rollup was actively referencing, causing integrity errors. Cleanup moved to 5:00 AM. A test was added to verify all cron expressions are unique across all task groups.
+- **Insight**: When multiple cron tasks touch overlapping database records, schedule collisions can cause data integrity failures. Adding a test that asserts cron expression uniqueness across all task groups prevents future collisions.
+
+### ANONYMIZED_DATA_COLLECTION flag had overly broad scope
+- **Repo**: ansible/metrics-service
+- **Commits**: d3fb802 (#168)
+- **What happened**: The flag was applied to the entire collection pipeline (12 tasks) instead of just the 2 anonymization/send tasks. Operators who opted out had permanent data gaps.
+- **Insight**: Feature flag scoping must match the flag's name. See `task_system.md` for the full feature flag evolution arc (single flag -> overly broad -> three independent flags).
+
+### Segment send failures were silent -- no error status, no health signal
+- **Repo**: ansible/metrics-service
+- **Commits**: 4e2a18e (#175)
+- **What happened**: `send_to_segment` returned bare strings, failed payloads were always marked "retry" (never "failed"), and the health endpoint didn't check payload status.
+- **Insight**: Silent failures in data pipelines are worse than crashes. See `metrics_collection.md` "Segment send failures made observable" for the fix. Rule: every external integration needs structured error returns, finite retry with escalation, and health check integration.
+
+### Stale task.save() after submit_task overwrote atomic attempts increment
+- **Repo**: ansible/metrics-service
+- **Commits**: 4892777 (#187)
+- **What happened**: `submit_task_to_dispatcher()` called `task.save()` after `submit_task()`, overwriting the worker's atomic `F("attempts") + 1` increment with stale in-memory `attempts=0`. Tasks appeared stuck at 0/3 attempts despite failing.
+- **Insight**: When using Django's `F()` expressions for atomic field updates, any subsequent bare `save()` on the same model instance will overwrite the atomic update with the stale in-memory value. See `task_system.md` for the full fix (narrowing all saves to `update_fields=[...]`).
+
+### post_migrate signal connected to class instead of instance -- handler never called
+- **Repo**: ansible/metrics-service
+- **Commits**: 8007509 (#189)
+- **What happened**: `TasksConfig.ready()` was connecting `load_task_feature_flags` to the `post_migrate` signal using `sender=FeatureFlagsConfig` (the class). But Django's `post_migrate` dispatches with `sender=<AppConfig instance>`, and signal dispatch matches by `id()`. Since `id(class) != id(instance)`, the handler was never called, meaning task-specific AAPFlags were never seeded after migrations. The fix: use `django_apps.get_app_config("dab_feature_flags")` to get the live instance.
+- **Insight**: Django signals match senders by identity (`id()`), not by type or equality. When using `sender=` with `post_migrate`, you must pass the live AppConfig instance (from `django.apps.apps.get_app_config()`), not the AppConfig class itself. This is a subtle Django signal pitfall that produces no error -- the handler simply never fires.
+
+### Dashboard HTML template vulnerable to XSS via template literals
+- **Repo**: ansible/metrics-service
+- **Commits**: 4892777 (#187)
+- **What happened**: The dashboard's inline JavaScript used ES6 template literals (backtick strings) to render task data (names, function names, error messages, cron expressions) directly into HTML without escaping. Any user-controlled data stored in task fields could inject arbitrary HTML/JavaScript. The fix introduced an `html` tagged template literal function that auto-escapes all interpolated values via `escapeHtml()` (replacing `&`, `<`, `>`, `"`, `'`), with a `RawHtml` wrapper class for values that are intentionally HTML (like nested `html` calls). All ~30 template literal usages in `dashboard.html` were converted from plain backtick strings to `html` tagged templates.
+- **Insight**: The tagged template literal pattern (`html\`...\``) is an elegant solution for HTML escaping in client-side JavaScript -- it provides automatic escaping by default with explicit opt-in for raw HTML via a wrapper class. This is the same pattern used by libraries like lit-html. The dashboard's single-file architecture (all JS inline in the HTML template) made this a localized fix rather than requiring a framework-level change.
+
+### Dashboard cleanup task schedule collision at 5:00 AM
+- **Repo**: ansible/metrics-service
+- **Commits**: 4892777 (#187)
+- **What happened**: `cleanup_dashboard_reports_old_data` was scheduled at `0 5 * * *`, colliding with `daily_task_cleanup` at the same time. This is the same class of bug as the earlier collision between cleanup and rollup at 2:00 AM (#163). The fix moved dashboard cleanup to 5:30 AM. The existing test that verifies no two tasks share the same cron expression caught this.
+- **Insight**: The cron uniqueness test added in #163 proved its value here. Without it, another schedule collision would have been introduced. Any new task added to task_groups.py should be checked against the existing schedule.
+
+### Shared Django DB connection manually closed in finally blocks -- broke concurrent tasks
+- **Repo**: ansible/metrics-service
+- **Commits**: 258547a (#194)
+- **What happened**: `_collect_data()` in dashboard_reports and `FilterOptionsViewSet.list()`/`.retrieve()` had `finally` blocks that called `db_connection.close()` on the raw psycopg connection returned by `get_db_connection("awx")`. This connection is Django's singleton object (`connections["awx"].connection`), shared across all tasks in the same worker process. When one task closed it, any concurrent task using the same connection got `psycopg.OperationalError: the connection is closed`. Django's wrapper didn't know the raw socket was dead, so `ensure_connection()` was skipped on the next call. The fix removed all manual `close()` calls and added `close_old_connections()` at safe boundaries (in `run_with_lock()` before acquiring advisory locks, and in `HealthView.get()` before `ensure_connection()`).
+- **Insight**: Never manually close a raw connection obtained from Django's `connections[]` API -- it is a singleton shared across the process. Django manages connection lifecycle; manual closing creates race conditions between concurrent tasks. Call `close_old_connections()` only at task entry points (before any locks are held), not inside utility functions like `get_db_connection()`, because it closes ALL connections including those holding advisory locks.
+
+### close_old_connections() placed in get_db_connection() broke advisory locks
+- **Repo**: ansible/metrics-service
+- **Commits**: 258547a (#194)
+- **What happened**: An intermediate fix tried adding `close_old_connections()` inside `get_db_connection()` to handle stale connections. But `close_old_connections()` closes ALL Django connections, including the default connection that `run_with_lock()` uses to hold PostgreSQL advisory locks. This caused lock release failures. The final fix moved `close_old_connections()` to `run_with_lock()` (before lock acquisition, when no locks are held) and explicitly documented in `get_db_connection()` that it must NOT call `close_old_connections()`.
+- **Insight**: `close_old_connections()` is a global operation that affects ALL database connections, not just one. It must only be called at safe boundaries where no connections are actively in use (e.g., at the very start of a task, before acquiring any locks). The iterative fix process (5 squashed commits) shows how tricky Django connection lifecycle management is in concurrent worker environments.
+
+### Scheduler spammed skip logs every 30s for disabled feature flag tasks
+- **Repo**: ansible/metrics-service
+- **Commits**: babf061 (#199)
+- **What happened**: When a feature flag like `DASHBOARD_COLLECTION` was disabled, the 30-second `_periodic_database_sync` loop would: (1) find the task via `Task.immediate_tasks()` (still `status="pending"` in DB), (2) call `_execute_database_task` which checked the flag and logged an INFO "Skipping task..." message, (3) call `_remove_database_task` to remove from in-memory tracking, but leave the DB row as `status="pending"`. Next cycle, the task was rediscovered and the loop repeated indefinitely. The fix gates task pickup behind a feature flag check *before* adding to the scheduler, so disabled tasks are silently bypassed. The skip log in `_execute_database_task` was downgraded from INFO to DEBUG as a safety net.
+- **Insight**: In polling-based architectures, if you remove an item from the in-memory tracking set without changing its DB state, the next poll will rediscover it. The correct approach for feature-flag-disabled tasks is to not pick them up at all, rather than picking them up and then skipping them. This also means the task automatically starts when the flag is re-enabled -- no manual `init-system-tasks` needed.
+
+### Segment event loss: sync_mode=True is the only reliable delivery method
+- **Repo**: ansible/metrics-utility
+- **Commits**: 4474a6c (#383)
+- **What happened**: Segment's Python SDK batches `track()` calls into background HTTP POSTs, and silently drops events from batches exceeding 500KB (returning HTTP 200 with no error callback). Three approaches were tried: (1) `time.sleep` after flush -- race condition, process exits before background thread finishes; (2) batch size tracking with mid-loop `flush()` at 450KB -- still dropped events because the SDK adds 2-3KB of per-event metadata (context, timestamps, messageId, integrations) that the data-size estimate couldn't account for; (3) `analytics.sync_mode = True` -- sends each `track()` as a separate blocking HTTP request (~25KB each), eliminating both the batch-size and background-thread problems. End-to-end testing confirmed 15/15 chunks delivered reliably. Gzip compression was also tried but Segment silently rejects gzip-encoded bodies (HTTP 200, 0 events received).
+- **Insight**: When a third-party analytics SDK silently drops events from oversized batches and provides no reliable way to estimate the true per-event overhead, sync_mode (one HTTP request per event) is the only reliable delivery method, even at the cost of higher latency.
+
+### DispatcherdReconnectFilter added then reverted (direct commit without PR)
+- **Repo**: ansible/metrics-service
+- **Commits**: 8bd2a5c, 48397c8 (#208)
+- **What happened**: A `DispatcherdReconnectFilter` logging filter was added directly to the `devel` branch (without a PR) to suppress transient asyncio ERROR logs from dispatcherd's pg_notify reconnection attempts. The filter checked `record.name == "asyncio"` and matched on `"CallbackHolder.done_callback"` in the message. It was added to the console handler in `metrics_service/settings.py`. The next day, it was reverted via PR #208 because it was committed "by Claude without going through a PR." The revert PR explicitly notes that if the fix is still needed, it should be re-proposed via a proper PR with review.
+- **Insight**: This is a process pitfall, not a technical one. AI-assisted coding tools (Claude, Cursor) can commit directly to branches without human review. The fix itself was technically sound (targeted filter, only suppressed asyncio errors containing a dispatcherd-specific callback name), but bypassing the PR process means no peer review of the approach. Notably, commit 932467a (#206, OCP test results) also touched the same `DispatcherdReconnectFilter` code in the brief window it existed, simplifying the if/return to a single `return not (...)` expression.
+
+## Superseded / Semi-Obsolete
+
+### Django signals on Task model caused widespread test failures
+- **Repo**: ansible/metrics-service
+- The `_skip_signals` workaround from a044bd7 (#54) is no longer needed. Signals were removed entirely in 85d2cbb (#57) because they don't work across process boundaries.
+
+### dispatcherd config hardcoded database credentials
+- **Repo**: ansible/metrics-service
+- The hardcoded credentials in `config/dispatcherd.yaml` (from the `use_django_db` revert in 3a8f7d5 #48) were replaced in 0e15cbd (#66) with runtime injection from Django settings via `_load_config_with_django_db()`.
+
+### URL prefix env var named inconsistently, fixed in follow-up PR
+- **Repo**: ansible/metrics-service
+- The `METRICS_URL_PREFIX` -> `METRICS_SERVICE_URL_PREFIX` rename from #69/#70 was superseded by #87 which moved URL prefix to a Django setting (`settings.URL_PREFIX`), and then by #91 which added proper prefix interpretation as an actual URL path prefix with slash sanitization.
+
+### Dispatcherd max workers reduced from 4 to 1 as a band-aid
+- **Repo**: ansible/metrics-service
+- Workers 4->1 (#148), then 1->4 (#167) with real fixes. See the main entries above and `task_system.md`.
