@@ -245,6 +245,18 @@
 - **What happened**: Codecov was added as a second coverage reporting tool alongside SonarCloud. The pytest step was updated with `--cov-branch` for branch coverage (in addition to line coverage). The `codecov/codecov-action` step uploads `coverage.xml` with `flags: unit-tests` and `fail_ci_if_error: false` (non-blocking). A `codecov.yml` config file was added with: `target: auto` (track coverage changes against the default branch baseline), `threshold: 1%` (allow up to 1% coverage decrease), `carryforward: true` (use previous coverage data when not all flags are reported), and ignore patterns for test files. The comment layout includes reach, diff, flags, and files sections.
 - **Insight**: Adding `--cov-branch` to pytest-cov captures branch coverage (whether both sides of conditionals are exercised), which is more meaningful than line coverage alone for code with many conditional paths like the report builders and validation logic.
 
+### OpenAPI schema generation, validation, and auto-sync to downstream repo
+- **Repo**: ansible/metrics-service
+- **Commits**: 6ee2d93 (#196)
+- **What happened**: Three CI additions: (1) `pr-checks.yml` gained "Generate OpenAPI schema" and "Validate OpenAPI schema" steps that regenerate the spec via `drf-spectacular`, diff against committed files, and validate with `openapi-spec-validator`. (2) A new `sync-openapi-specs.yml` workflow triggers on push to devel (when `apps/**/*.py` files change) and auto-creates a PR in `ansible-automation-platform/aap-openapi-specs` with the updated spec. Uses `AAP_OPENAPI_SPECS_PAT` secret for cross-repo push. (3) Makefile targets `generate-openapi-schema` and `validate-openapi-schema` for local dev.
+- **Insight**: The two-tier CI approach (PR validation + push-triggered sync) ensures the committed spec stays current while automating downstream publication. The PR validation catches schema drift (developer changes an endpoint but forgets to regenerate), while the push workflow ensures the central specs repo is always in sync with devel.
+
+### Go build step added to CI for mock Segment server
+- **Repo**: ansible/metrics-utility
+- **Commits**: df497c3 (#409)
+- **What happened**: The `pytest.yml` workflow gained `actions/setup-go@v5` (with `go-version-file: tools/mock-segment-server/go.mod`) and a "Start mock Segment server" step that builds the Go binary, runs it in the background, and waits (with a 1-minute timeout) for the `/requests` endpoint to become available before running pytest. This is the first use of Go in the metrics-utility CI pipeline.
+- **Insight**: Using a compiled Go binary as a test fixture server avoids Python dependency conflicts (no need to install a mock HTTP framework) and starts faster than a Python HTTP server. The `timeout-minutes: 1` on the wait step prevents CI from hanging if the server fails to start.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)

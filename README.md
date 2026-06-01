@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | b36d893 | 2026-05-26 | Updated dashboard collection (#392) |
-| metrics-service | f9c6e49 | 2026-05-22 | Removing all the results files as they are being moved to the handbook (#227) |
+| metrics-utility | df497c3 | 2026-05-27 | Milan add mock segment (#409) |
+| metrics-service | 4867d01 | 2026-05-29 | [AAP-75648] Fix: Log WARNING during retries, ERROR only on final failure (#226) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

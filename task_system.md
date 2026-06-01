@@ -246,7 +246,17 @@
 - **What happened**: The per-task `timeout_seconds` DB field was removed (migration 0004), the hardcoded `STUCK_TASK_TIMEOUT_SECONDS = 3600` constant was eliminated, and the `--timeout` CLI flags on `run` and `run_dispatcherd` were made no-ops (kept for compatibility). All timeout logic now uses `settings.TASK_TIMEOUT` (default 3600, overridable via `METRICS_SERVICE_TASK_TIMEOUT` env var). Both stuck task detection in `cron_scheduler.py` and dispatcherd's `default_timeout` in `dispatcherd_config.py` now read from this single setting. In #228, a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` constant was re-introduced for readability in the scheduler code.
 - **Insight**: Consolidating timeout into a single Dynaconf setting eliminates the three-way inconsistency that was possible (DB field vs hardcoded constant vs CLI arg). The `--timeout` flag stays for backward compatibility but does nothing, avoiding breaking existing deployment scripts. The env var override (`METRICS_SERVICE_TASK_TIMEOUT`) follows the existing Dynaconf naming convention for production overrides.
 
+### Dashboard collection merged from standalone task into hourly collector hook
+- **Repo**: ansible/metrics-service
+- **Commits**: bd760f5 (#210)
+- **What happened**: The standalone `daily_dashboard_collection` cron task (6-hourly) was replaced by a `post_collect_hook` on the `unified_jobs` hourly collector. The collector registry gained a `post_collect_hook_factory` field. When `DASHBOARD_COLLECTION` is enabled, `_build_dashboard_sync_hook` is wired as the hook factory for the `unified_jobs` entry. The hook creates `sync_dashboard_job_records` one-time tasks (chunked at 500 records) via `update_or_create`. The `collection_status` endpoint was updated to query `hourly_unified_jobs` (the parent task) instead of the removed dashboard data task. The `collect_dashboard_reports_data` function is deprecated but retained for initial backfill only. The `TASK_LOCKS` dict was updated: `collect_dashboard_reports_data` removed, `sync_dashboard_job_records` added.
+- **Insight**: Merging dashboard collection into the existing hourly pipeline eliminates a separate cron schedule and DB connection, keeping total Controller DB calls per hour at 2. The hook pattern extends the collector framework without modifying the core `generic_collect_metrics` flow. Tasks should be created via `update_or_create` (not `get_or_create`) to handle concurrent hourly runs for the same hour.
+
 ## Superseded / Semi-Obsolete
+
+### daily_dashboard_collection cron task
+- **Repo**: ansible/metrics-service
+- Removed in bd760f5 (#210). Dashboard collection is now routed through the hourly `unified_jobs` collector via a `post_collect_hook`. The standalone 6-hourly task no longer exists.
 
 ### Placeholder tasks (send_notification_email, process_user_data)
 - These were removed in c6947ce (#14) when the task system was extracted to `apps/tasks/`.

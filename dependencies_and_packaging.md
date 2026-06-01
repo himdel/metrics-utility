@@ -263,6 +263,12 @@
 - **What happened**: The `cryptography` transitive dependency was bumped from 45.0.6 to 48.0.0 via `uv lock --upgrade-package cryptography`. CVE-2026-39892 affects cryptography >=45.0.0 and <46.0.7 (buffer overflow when non-contiguous Python buffers are passed to cryptography APIs like `Hash.update()`). Since `cryptography` is a transitive dependency pulled in by `django-ansible-base`, no changes to `pyproject.toml` were needed -- only `uv.lock` was updated (85 lines changed).
 - **Insight**: For transitive dependencies, `uv lock --upgrade-package <pkg>` is the minimal fix: it bumps only the target package in the lockfile without touching `pyproject.toml` or other dependencies. This is preferable to a full `uv lock --upgrade` which could introduce unrelated breaking changes.
 
+### metrics-utility lower bound bumped to >=0.8.0 (salt removal)
+- **Repo**: ansible/metrics-service
+- **Commits**: ff2eb2f (#229)
+- **What happened**: The `metrics-utility` dependency lower bound was bumped from `>=0.7.x` to `>=0.8.0` because metrics-utility 0.8.0 removed the `salt` parameter from `anonymize_rollups()` (ansible/metrics-utility#399). The service's devel branch had already stopped passing `salt=` (#215), but the dep spec still allowed installing 0.7.x which requires the salt parameter. This ensures only the salt-free version is accepted.
+- **Insight**: When a library removes a parameter from its API, the service-side dep spec must be bumped to reject the old version -- otherwise the lockfile could resolve to an incompatible release. The 0.7/2.7 maintenance branch uses the salt param consistently, so this bump only affects devel/main.
+
 ## Superseded / Semi-Obsolete
 
 ### requirements.txt as primary dependency source

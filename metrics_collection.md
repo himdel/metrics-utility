@@ -267,6 +267,24 @@
 - **What happened**: A `unified_jobs_dashboard` collector was added that extends `unified_jobs` with dashboard-specific fields: `project_id`, `project_name`, `launched_by_id/username` (from `auth_user` join), `label_ids` (via `STRING_AGG` subquery), and `num_hosts` (via `COUNT` subquery). The `dashboard_jobs` collector gained cursor-based pagination support via optional `after_id` and `batch_size` parameters for incremental backfill. New query helpers (`get_min_max_job_id_query`, `get_jobs_batch_query`, `get_job_labels_for_ids_query`, `get_job_host_summaries_for_ids_query`) enable the batched path. A `_JOBS_BASE_SQL` constant was extracted to share the SELECT/JOIN fragment between `get_jobs_query` and `get_jobs_batch_query`, preventing schema drift between the two paths. Partial batch args (`after_id` without `batch_size` or vice versa) now raise `ValueError` instead of silently falling back to full-window queries.
 - **Insight**: When adding a batched/paginated variant of an existing query, extract the shared SQL fragment into a constant (`_JOBS_BASE_SQL`) -- otherwise the two paths drift apart when columns are added, causing the dict-building loop to produce different schemas silently.
 
+### Dashboard collection merged into hourly collectors via post_collect_hook
+- **Repo**: ansible/metrics-service
+- **Commits**: bd760f5 (#210)
+- **What happened**: The standalone 6-hourly `daily_dashboard_collection` task was eliminated. Dashboard data now flows through the existing `collect_hourly_metrics` pipeline: `generic_collect_metrics` gained a `post_collect_hook` parameter (and a `post_collect_hook_factory` field in the collector registry). For the `unified_jobs` collector, when `DASHBOARD_COLLECTION` is enabled, the hook serializes job rows and creates a one-off `sync_dashboard_job_records` task via `update_or_create` (safe on retry/concurrent runs). The `unified_jobs_dashboard` collector (from metrics-utility) replaces `unified_jobs` to include dashboard-specific fields (project, launched_by, labels, num_hosts). Initial backfill uses cursor-paginated batches of `BACKFILL_BATCH_SIZE` (default 5,000), with retry resuming from `MAX(job_id)` of already-synced records. Hook exceptions are swallowed (logged + `TaskExecution(status="failed")`) so dashboard failures cannot abort the anonymization rollup pipeline. Records are chunked at 500 per sync task to bound `task_data` blob size. Cleanup retention defaults to `DASHBOARD_COLLECTION.INITIAL_BACKFILL_DAYS`.
+- **Insight**: Routing dashboard sync through the existing hourly collector pipeline (via a hook) eliminates a separate DB connection and cron schedule, keeping total Controller DB calls per hour unchanged at 2. The hook pattern is extensible: any collector can register a `post_collect_hook_factory` in the registry to run additional processing on collected data. The key design decision is that hook failures are swallowed, not propagated -- ensuring the primary rollup pipeline is never disrupted by dashboard-specific issues.
+
+### Dashboard test fix: _collect_jobs mocks updated for batch-pagination refactor
+- **Repo**: ansible/metrics-service
+- **Commits**: 99d80d2 (#244)
+- **What happened**: Four tests were still mocking `_collect_jobs` after `_collect_data` was refactored to use `_get_job_id_range` + `_process_batches` (in #210). Without a mock for `_get_job_id_range`, the comparison `while after_id < max_id` raised `TypeError` on `MagicMock` objects. Fixed by patching `_get_job_id_range` to return `(None, None)` instead.
+- **Insight**: When refactoring a function's internals (splitting it into sub-functions), all existing mocks for the original function must be audited -- mocks that targeted the old call chain will produce type errors or incorrect behavior on the new sub-function boundaries.
+
+### StorageSegment `host` parameter for mock/test redirection
+- **Repo**: ansible/metrics-utility
+- **Commits**: df497c3 (#409)
+- **What happened**: `StorageSegment` gained a `host` setting that sets `analytics.host` before sending, allowing redirection to a mock Segment server for integration testing. When `host` is `None` (default), the SDK uses its default endpoint (`https://api.segment.io`). The `put()` method now sets `analytics.host = self.host or None` alongside the existing `analytics.sync_mode = True`.
+- **Insight**: Adding a `host` override to the Segment storage class is a minimal, non-invasive change that enables full end-to-end testing of the Segment shipping pipeline without modifying the SDK or using monkey-patching.
+
 ## Superseded / Semi-Obsolete
 
 ### Individual collector files (collect_job_host_summary_hourly.py, etc.)

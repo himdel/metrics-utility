@@ -90,6 +90,12 @@
 - **What happened**: All 20 benchmark results and documentation files were deleted from `metrics_service/tools/performance_tests/`: 5 `BENCHMARK_*.md` runbooks, 5 `RESULTS_*.md` files, and 10 `results_*_*.txt` raw output files (totaling ~3,700 lines). These were moved to the ansible/handbook repository (PR #1430). The benchmark scripts themselves (`benchmark_manage.py`, `benchmark_api.py`, `collection_rollup_benchmark_hourly.py`) remain in the repo.
 - **Insight**: Results files are point-in-time artifacts that belong in documentation/runbook repositories, not in the code repo. Keeping benchmark scripts in the code repo ensures they stay in sync with the codebase, while results are published separately where they can be updated independently and are discoverable by stakeholders who don't browse the code repo.
 
+### Dashboard performance tests: API latency and collection throughput
+- **Repo**: ansible/metrics-service
+- **Commits**: 17b611b (#224)
+- **What happened**: Performance benchmarks were added under `metrics_service/tools/performance_tests/benchmark_dashboard/`. Two scripts: (1) `benchmark_dashboard_api.py` (~258 lines) tests API endpoint latency for dashboard reports with configurable data volumes, measuring response times across filter combinations. (2) `benchmark_dashboard_collection.py` (~442 lines) tests dashboard data collection throughput, including initial backfill and incremental sync, measuring wall-clock time and memory via the existing `PeakMemoryMonitor` pattern. A `fill_data.py` script generates synthetic dashboard data at configurable scales. A consolidated `README.md` documents setup, usage, and expected results.
+- **Insight**: Adding separate benchmarks for the dashboard collection pipeline (vs the existing anonymized rollup pipeline benchmarks) acknowledges that these are fundamentally different workloads: the dashboard path does batched cursor-paginated reads from the AWX DB and writes to the local DB, while the rollup path does hourly CSV extraction and JSON aggregation. Each needs its own performance baseline.
+
 ## Superseded / Semi-Obsolete
 
 ### http_benchmark.py (GET-endpoint latency tests)

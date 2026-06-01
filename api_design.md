@@ -88,7 +88,17 @@
 - **What happened**: A new `GET /api/v1/dashboard_reports/report/export/` endpoint was added to `DashboardReportViewSet` as a custom `@action`. It supports `export_format` (currently only `csv`, extensible to `pdf`) and `report_type` (`summary`, `roi`, `trends`) query parameters, reusing all existing dashboard filter parameters. The implementation uses a `PassthroughRenderer` (DRF `BaseRenderer` subclass with `media_type="text/csv"`) to bypass DRF serialization and return an `HttpResponse` with `Content-Disposition: attachment`. The `sec2time()` utility was moved from `serializers.py` to a new `apps/dashboard_reports/utils.py` for reuse by both the serializer and the CSV export logic. Pagination query parameters were extracted into a reusable `PAGINATION_QUERY_PARAMETERS` list shared by the `details` and `export` actions.
 - **Insight**: Using a `PassthroughRenderer` that returns data as-is is the cleanest DRF pattern for file download endpoints. It avoids fighting DRF's content negotiation while keeping the endpoint inside the viewset (with its permission classes and filter logic). Extracting shared OpenAPI parameter definitions into module-level lists reduces duplication between actions.
 
+### Comprehensive OpenAPI specification with auto-sync to downstream repo
+- **Repo**: ansible/metrics-service
+- **Commits**: 6ee2d93 (#196)
+- **What happened**: OpenAPI documentation was added to all REST endpoints via `drf-spectacular` `@extend_schema` decorators. Generated schema files (`metrics-service.yaml` and `metrics-service.json`, ~24k lines combined) are committed under `tools/openapi-schema/`. CI validation was added: `pr-checks.yml` regenerates the schema and diffs against committed files (failing if they're out of sync), then validates against the OpenAPI 3.0 spec using `openapi-spec-validator`. A `sync-openapi-specs.yml` workflow auto-syncs the spec to `ansible-automation-platform/aap-openapi-specs` on every push to devel, creating a PR in the downstream repo. Makefile targets `generate-openapi-schema` and `validate-openapi-schema` were added for local use.
+- **Insight**: Committing generated schema files rather than generating on-the-fly ensures the spec is always reviewable in PRs (changes to views/serializers show up as schema diffs). The auto-sync workflow to a central OpenAPI specs repo enables cross-service API documentation aggregation. Re-adding `drf-spectacular` (which was removed in #73) reflects the team's conclusion that it's the right tool for OpenAPI generation in the DRF ecosystem.
+
 ## Superseded / Semi-Obsolete
+
+### DRF Spectacular @extend_schema decorators on API views
+- **Repo**: ansible/metrics-service
+- DRF Spectacular was removed in 5fb6ead (#73) but re-added in 6ee2d93 (#196) with comprehensive OpenAPI documentation for all endpoints.
 
 ### Monolithic apps/api/ as single API app
 - The initial structure had a single `apps/api/` app with all endpoints. This was later reorganized so each domain app (`apps/tasks/`, `apps/core/`, `apps/dynamic_settings/`) owns its own `v1/` API subdirectory.

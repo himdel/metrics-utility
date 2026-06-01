@@ -96,8 +96,13 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Collector architecture
 - **Files**: metrics_collection.md, task_system.md
-- **Evolution**: individual collector files per type (#79) -> legacy system removed, tasks reorganized into subdirectory (#92) -> consolidated into two generic functions (collect_hourly/collect_snapshot) with registry-based design (#109)
-- **PRs**: 3
+- **Evolution**: individual collector files per type (#79) -> legacy system removed, tasks reorganized into subdirectory (#92) -> consolidated into two generic functions (collect_hourly/collect_snapshot) with registry-based design (#109) -> daily collector type added for service DB queries (#165) -> post_collect_hook added to registry for dashboard sync (#210)
+- **PRs**: 4+
+
+### Dashboard collection scheduling
+- **Files**: metrics_collection.md, task_system.md
+- **Evolution**: standalone 6-hourly `daily_dashboard_collection` cron task (initial) -> merged into hourly collector pipeline via `post_collect_hook` on unified_jobs (#210), with initial backfill via cursor-paginated batches
+- **PRs**: 2+
 
 ### Secrets management
 - **Files**: settings_and_configuration.md
@@ -106,6 +111,11 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 ### CodeQL
 - **Files**: ci_cd.md
 - **Evolution**: created then immediately reverted (wrong file contents, 5 minutes apart)
+
+### DRF Spectacular / OpenAPI
+- **Files**: api_design.md, dependencies_and_packaging.md
+- **Evolution**: added initially -> removed during DAB retrofit (#73, API docs to be handled by `ansible_base.api_documentation`) -> re-added with comprehensive OpenAPI documentation and auto-sync workflow (#196)
+- **PRs**: 3
 
 ### Segment send scheduling and jitter
 - **Files**: metrics_collection.md
