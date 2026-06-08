@@ -228,6 +228,12 @@
 - **What happened**: A new `sync_flag_values_from_settings()` function was added to `apps/tasks/apps.py`. It reads each flag from `feature_flags.yaml`, checks for a matching top-level settings attribute (`settings.FEATURE_<name>_ENABLED`), and updates the AAPFlag DB row if the values differ. Called from `init-default-settings` (which runs during container startup). Saves without `no_reverse_sync()` so the change propagates to the Gateway resource server.
 - **Insight**: The Gateway UI reads feature flag state from AAPFlag rows. If the installer sets `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` in `settings.yaml` but the AAPFlag row still says `False` (from the YAML seed), the Gateway shows the wrong state. This sync function bridges the gap. It only runs during `init-default-settings` (not `AppConfig.ready()`) to avoid writing to the DB on every Django invocation.
 
+### TASK_METADATA examples added for sync_dashboard_job_records
+- **Repo**: ansible/metrics-service
+- **Commits**: 548aebb (#248)
+- **What happened**: The `sync_dashboard_job_records` entry in `TASK_METADATA` declared `hour_timestamp` and `raw_jobs` parameters but had an empty `examples` list, leaving both parameters undemonstrated. An example was added showing a typical hourly sync payload with a single job record containing all required fields (id, name, status, timestamps, organization, project, etc.). This makes the dashboard API's `available_functions` endpoint and task-review consistency checks complete.
+- **Insight**: Every `TASK_METADATA` entry with parameters should have at least one example -- the examples serve as documentation, are exposed via the API, and are checked by the task-review consistency skill.
+
 ### Stuck task detection moved into scheduler's periodic sync
 - **Repo**: ansible/metrics-service
 - **Commits**: e7558f7 (#211)

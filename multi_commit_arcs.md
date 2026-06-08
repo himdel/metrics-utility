@@ -71,8 +71,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Evolution**: 4 -> 1 (band-aid) -> 4 (real fix with atomic updates and advisory locks)
 
 ### Feature flag evolution
-- **Files**: task_system.md
-- **Evolution**: single flag -> overly broad scope -> three independent flags
+- **Files**: task_system.md, settings_and_configuration.md
+- **Evolution**: single flag -> overly broad scope -> three independent flags -> FEATURE_ENABLED renamed to FEATURE, DB seeding removed in favor of env-var-driven defaults (#250)
 
 ### Settings API lifecycle
 - **Files**: api_design.md, settings_and_configuration.md

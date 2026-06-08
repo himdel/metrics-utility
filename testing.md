@@ -311,6 +311,12 @@
 - **What happened**: ~1,870 lines of new tests were added across 7 files covering previously untested CLI pipeline components: `test_automation_controller_billing_helpers_pure.py` (pure-function helpers without DB), `test_dataframe_content_usage.py` (content usage dataframe engine), `test_dataframe_engine_base.py` (base dataframe engine logic: casting, merging, multipart handling), `test_extract_base.py` (tarball extraction: safe_extract security, filter_tarball_paths, CSV selection), `test_factories.py` (DataframeFactory, ExtractorFactory, ReportFactory, ReportSaverFactory), and `test_report_base.py` (report base class: sheet building, formula generation, column formatting). This significantly improved coverage of the build_report pipeline.
 - **Insight**: Factory classes and base classes in the build_report pipeline had been tested only indirectly through integration tests -- adding unit tests for factories (verifying correct class selection per report type and ship target) and base classes (verifying sheet building, formulas, and column formatting) catches configuration-level bugs that integration tests miss.
 
+### Subprocess test env standardized: no __pycache__, UTC timezone, UTF-8 locale
+- **Repo**: ansible/metrics-utility
+- **Commits**: ec24d69 (#419)
+- **What happened**: Test subprocesses in `_run_ext` and snapshot tests were getting a bare env with only test-specific vars, leaving `__pycache__` dirs scattered across the tree and inheriting inconsistent locale/timezone settings. A shared `_SUBPROCESS_BASE_ENV` dict was added to `metrics_utility/test/util.py` with `PYTHONDONTWRITEBYTECODE=1`, `TZ=UTC`, and `LANG=en_US.UTF-8`. Both `_run_ext()` and `run_snapshot_definition()` now merge this base env before test-specific vars. The previously included `AWX_LOGGING_MODE=stdout` was dropped since nothing in the repo reads it (carried over from when tests ran inside the Controller container).
+- **Insight**: Test subprocesses should get a minimal, controlled environment rather than inheriting the parent process's env or getting a bare env with only test vars -- this prevents locale-dependent behavior differences and stale artifacts like `__pycache__` directories.
+
 ### Mock Segment server for end-to-end Segment integration testing
 - **Repo**: ansible/metrics-utility
 - **Commits**: df497c3 (#409)

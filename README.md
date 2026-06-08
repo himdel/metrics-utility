@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | df497c3 | 2026-05-27 | Milan add mock segment (#409) |
-| metrics-service | 4867d01 | 2026-05-29 | [AAP-75648] Fix: Log WARNING during retries, ERROR only on final failure (#226) |
+| metrics-utility | ec24d69 | 2026-06-04 | tests run_*_ext: don't create __pycache__, remove unused var, add lang & tz default (#419) |
+| metrics-service | b7c4b1f | 2026-06-05 | AAP-77009: rename FEATURE_ENABLED→FEATURE, make feature flags env-var driven (#250) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

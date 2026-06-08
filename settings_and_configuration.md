@@ -461,9 +461,9 @@
 - **Repo**: ansible/metrics-service
 - The `ConfigView` added in 8b4aa31 (#26) with `DYNACONF.merge()` was replaced in f4b136e (#31) by the `SettingView` with DB-backed change tracking and rollback.
 
-### FEATURE_FLAGS naming
+### FEATURE_FLAGS / FEATURE_ENABLED naming
 - **Repo**: ansible/metrics-service
-- Renamed to `FEATURE_ENABLED` in c8e5f0d (#36) to avoid confusion with AAP's feature flags system.
+- Originally `FEATURE_FLAGS`, renamed to `FEATURE_ENABLED` in c8e5f0d (#36) to avoid confusion with AAP's feature flags system. Further renamed to `FEATURE` in b7c4b1f (#250) to shorten the Dynaconf env var prefix.
 
 ### Manual URL prefix via METRICS_SERVICE_URL_PREFIX env var
 - **Repo**: ansible/metrics-service
@@ -505,9 +505,19 @@
 - **Repo**: ansible/metrics-service
 - Commented out in 6b4f17c (#137) for tech preview deployment. Superseded by 956923d (#193) which uncommented all four validators and added actionable error messages specifying which environment variables to set.
 
+### FEATURE_ENABLED renamed to FEATURE, feature flags made env-var driven without DB seeding
+- **Repo**: ansible/metrics-service
+- **Commits**: b7c4b1f (#250)
+- **What happened**: The `FEATURE_ENABLED` dict in `defaults.py` was renamed to `FEATURE`, shortening the Dynaconf env var prefix from `METRICS_SERVICE_FEATURE_ENABLED__<KEY>` to `METRICS_SERVICE_FEATURE__<KEY>`. The `DEFAULT_SETTINGS` dict was emptied and its seeding loop removed from `initialize_default_settings()` -- feature flags are no longer pre-seeded into the database. Instead, flags resolve at runtime with three-tier precedence: (1) DB row in `dynamic_settings_setting` (always wins), (2) env var via `METRICS_SERVICE_FEATURE__*`, (3) static default in `settings.FEATURE`. The `init-default-settings` command was repurposed as an upgrade hook: it deletes redundant `true` DB rows for FEATURE flag keys (since `true` is the static default and the DB row would block env var overrides), while preserving `false` rows (explicit opt-outs). The `--overwrite` and `--all-known` CLI flags were removed as dead code. All references across code, tests, docker-compose, CLAUDE.md, and README were updated. Tests were rewritten to validate the new behavior (no rows created, `true` rows cleaned up, `false` rows preserved).
+- **Insight**: Pre-seeding feature flags into the DB on fresh installs meant that setting `METRICS_SERVICE_FEATURE__<KEY>=false` had no effect -- the DB row (tier 1) always won over the env var (tier 2). Removing the seeding lets env vars take effect on fresh installs. The upgrade hook cleans up existing `true` rows that were redundant (matching the static default) so env vars work after upgrade too. This is a significant operational improvement: operators can now toggle feature flags via env vars without DB access.
+
 ### Feature flags simplified to single ANONYMIZED_DATA_COLLECTION toggle
 - **Repo**: ansible/metrics-service
 - The decision in e137d39 (#92) to remove `METRICS_COLLECTION_ENABLED` and make collection always-on was partially reversed in 68a2039 (#191). A new `METRICS_COLLECTION` flag (default: true) was added to gate local collection independently. The system now has three flags: `METRICS_COLLECTION`, `ANONYMIZED_DATA_COLLECTION`, and `DASHBOARD_COLLECTION`.
+
+### FEATURE_ENABLED naming
+- **Repo**: ansible/metrics-service
+- Renamed to `FEATURE` in b7c4b1f (#250) to shorten the Dynaconf env var prefix. Previously renamed from `FEATURE_FLAGS` to `FEATURE_ENABLED` in c8e5f0d (#36) to avoid confusion with AAP's feature flags system.
 
 ### ServicePrefixMiddleware derived prefix from ROOT_URLCONF only
 - **Repo**: ansible/metrics-service

@@ -227,6 +227,12 @@
 - **What happened**: The MinIO binary download URLs (`dl.min.io`) changed from returning HTTP redirects to returning HTML redirect pages, breaking the CI workflow's `curl` commands. The fix added `-L` flag (follow redirects) and manual URL following for the HTML redirect case. MD5 checksum verification was also added for both `minio` and `mc` binaries, and `-f` was added to `curl` to fail on 4xx/5xx responses instead of silently downloading error pages.
 - **Insight**: CI workflows that download external binaries should always verify checksums and use `curl -fL` -- download URLs can change their redirect behavior without notice, and silently downloading an HTML error page instead of a binary causes confusing test failures.
 
+### PR target branch validation added to pr-checks
+- **Repo**: ansible/metrics-service
+- **Commits**: 590ccc9 (#249)
+- **What happened**: A "Check PR target" step was added to `pr-checks.yml` that validates the PR's base branch before running any other checks. On upstream (`ansible/metrics-service`), PRs must target `devel`; downstream forks may target `stable-2.*` branches. The check uses shell conditionals against `github.event.pull_request.base.repo.full_name` and `github.event.pull_request.base.ref`, failing with a descriptive `::error::` message if the target is invalid.
+- **Insight**: Target branch validation in CI prevents accidental PRs to `main` or other non-standard branches, which is especially useful when the default branch is `devel` (not `main`) and contributors may not know the convention.
+
 ### SonarCloud exclusions expanded for boilerplate files
 - **Repo**: ansible/metrics-service
 - **Commits**: 651db2b (#217)
