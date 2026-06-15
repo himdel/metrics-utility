@@ -443,6 +443,18 @@
 - **What happened**: The `get_feature_enabled_from_db()` lookup order was expanded from four to five tiers by adding a check for `settings.FEATURE_<name>_ENABLED` (top-level attribute set by the installer via `settings.yaml`) between the `FEATURE_ENABLED` dict check and the AAPFlag check. Full order: (1) `Setting` row, (2) `settings.FEATURE_ENABLED[name]`, (3) `settings.FEATURE_<name>_ENABLED` top-level attr, (4) AAPFlag, (5) default. A new `sync_flag_values_from_settings()` function propagates installer overrides to AAPFlag rows so the Gateway UI reflects the installer's intent.
 - **Insight**: The installer convention of writing `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml` (as a top-level key, not inside the `FEATURE_ENABLED` dict) means Dynaconf surfaces it as a direct settings attribute. Without explicit handling in the precedence chain, this installer intent was invisible to the feature flag system. The sync function ensures the Gateway's AAPFlag rows match.
 
+### Inline CORS middleware for dev-only cross-origin tools
+- **Repo**: ansible/metrics-service
+- **Commits**: 6316a02 (#254)
+- **What happened**: A `_DevCorsMiddleware` class was added inline in `apps/settings/development.py` (not as a separate module or pip dependency). It handles OPTIONS preflight requests and adds `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, `Access-Control-Allow-Credentials`, and `Access-Control-Max-Age` headers when an `Origin` request header is present. The middleware is injected at position 0 in the middleware stack via Dynaconf's `MIDDLEWARE = "@insert 0 apps.settings.development._DevCorsMiddleware"` marker. This enables the standalone dev dashboard (`tools/tasks/dashboard.html`) to call the API from a different origin (e.g., `file://` or a local static server).
+- **Insight**: Defining the CORS middleware inline in the development settings file (rather than installing `django-cors-headers`) keeps it dev-only by construction -- it only loads when `METRICS_SERVICE_MODE=development`. The middleware trusts any Origin header, which is acceptable for local development but would be a security risk in production. The `django-cors-headers` package was previously removed in 911dd60 (#77) as unnecessary since CORS is handled at the gateway level in production.
+
+### dev.sh --init flag for quick local development bootstrap
+- **Repo**: ansible/metrics-service
+- **Commits**: 6316a02 (#254)
+- **What happened**: The `tools/dev.sh` script was updated to support a `--init` flag. When passed, it runs `manage.py migrate`, creates an `admin/admin` superuser via `createsuperuser --noinput`, and then explicitly sets the password to `admin` via a `manage.py shell` command (because `createsuperuser --noinput` with `DJANGO_SUPERUSER_PASSWORD` sometimes doesn't set it correctly). The `2>/dev/null || true` on the createsuperuser call makes it idempotent (succeeds even if the user already exists). Without `--init`, the script prints a hint about the flag instead of the previous `echo SKIPPED: $MANAGE migrate` message.
+- **Insight**: A `--init` flag for the dev script provides a one-command bootstrap (`./tools/dev.sh --init`) that handles the common "I just cloned the repo, how do I start?" scenario. Making it a flag (rather than always running) avoids unnecessary migration and user-creation overhead on subsequent runs.
+
 ## Superseded / Semi-Obsolete
 
 ### Database defaults to SQLite for development
@@ -469,9 +481,9 @@
 - **Repo**: ansible/metrics-service
 - The `os.getenv("METRICS_SERVICE_URL_PREFIX")` approach from 2efdae3 (#69) / a64071c (#70) was superseded by `settings.URL_PREFIX` in 7db9971 (#87), then refined with proper prefix interpretation in 85aed7f (#91). The `ServicePrefixMiddleware` from 52c8fb5 (#75) handles gateway-level prefix routing.
 
-### DEVELOPER_MODE_ENABLED setting
+### DEVELOPER_MODE_ENABLED setting and DeveloperModeRequired permission
 - **Repo**: ansible/metrics-service
-- Removed in 7db9971 (#87). Development-mode gating now uses `settings.MODE == "development"` instead of a separate boolean flag.
+- `DEVELOPER_MODE_ENABLED` removed in 7db9971 (#87), replaced by `settings.MODE == "development"` check. The `DeveloperModeRequired` permission class (which checked `settings.MODE`) was itself deleted in be9e010 (#253) when the tasks API switched to DAB's `IsSystemAdminOrAuditor` RBAC permission. The mode-based gating approach for the tasks API is now fully superseded by role-based access control.
 
 ### Segment write key as task parameter
 - **Repo**: ansible/metrics-service

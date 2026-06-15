@@ -257,11 +257,23 @@
 - **What happened**: Three CI additions: (1) `pr-checks.yml` gained "Generate OpenAPI schema" and "Validate OpenAPI schema" steps that regenerate the spec via `drf-spectacular`, diff against committed files, and validate with `openapi-spec-validator`. (2) A new `sync-openapi-specs.yml` workflow triggers on push to devel (when `apps/**/*.py` files change) and auto-creates a PR in `ansible-automation-platform/aap-openapi-specs` with the updated spec. Uses `AAP_OPENAPI_SPECS_PAT` secret for cross-repo push. (3) Makefile targets `generate-openapi-schema` and `validate-openapi-schema` for local dev.
 - **Insight**: The two-tier CI approach (PR validation + push-triggered sync) ensures the committed spec stays current while automating downstream publication. The PR validation catches schema drift (developer changes an endpoint but forgets to regenerate), while the push workflow ensures the central specs repo is always in sync with devel.
 
+### Cross-repo CI: metrics-service tests run against local metrics-utility checkout
+- **Repo**: ansible/metrics-utility
+- **Commits**: 6b6a2d8 (#427)
+- **What happened**: A new `pytest-service` job was added to the `pytest.yml` workflow that clones `ansible/metrics-service@devel` and runs its test suite with the current checkout of metrics-utility installed via `uv add --editable "${GITHUB_WORKSPACE}"`. This catches utility changes that break the service before they are merged. The job reuses the same SQL dump setup as the utility test job (the `roles.sql` script already creates the `metrics_service` role and database). The job runs migrations via `uv run python manage.py migrate --noinput` and then `uv run pytest -s -v` with Dynaconf-style env vars for both the `default` and `awx` database connections.
+- **Insight**: Running a downstream consumer's test suite against the current PR's code (via editable install) is a lightweight way to detect API-breaking changes before merge -- it requires no coordination between repos and uses existing CI infrastructure (same SQL dump, same PostgreSQL setup).
+
 ### Go build step added to CI for mock Segment server
 - **Repo**: ansible/metrics-utility
 - **Commits**: df497c3 (#409)
 - **What happened**: The `pytest.yml` workflow gained `actions/setup-go@v5` (with `go-version-file: tools/mock-segment-server/go.mod`) and a "Start mock Segment server" step that builds the Go binary, runs it in the background, and waits (with a 1-minute timeout) for the `/requests` endpoint to become available before running pytest. This is the first use of Go in the metrics-utility CI pipeline.
 - **Insight**: Using a compiled Go binary as a test fixture server avoids Python dependency conflicts (no need to install a mock HTTP framework) and starts faster than a Python HTTP server. The `timeout-minutes: 1` on the wait step prevents CI from hanging if the server fails to start.
+
+### Tekton PipelineRun added for tier-1 ATF tests as PR check
+- **Repo**: ansible/metrics-service
+- **Commits**: c37c4c2 (#255)
+- **What happened**: A Tekton PipelineRun manifest (`.tekton/run-atf-tests-pull-request.yaml`) was added to run marked tier-1 tests from the AAP test framework (ATF) as a PR check. The pipeline triggers on PR comments matching `^/run-atf-tests$` (via `pipelinesascode.tekton.dev/on-comment`), runs in the `ansible-ci-tenant` namespace, and references the `aap-api-tests` pipeline bundle from `quay.io/aap-ci/tekton-catalog`. It has generous timeouts (8h pipeline, 7h tasks, 1h finally) for the integration test suite. The pipeline passes the PR's source URL, org, repo, branch, revision, and PR number as parameters. A `renovate.json` was also added with `enabledManagers: ["tekton"]` and `automerge: true` on a twice-daily weekday schedule, so Tekton bundle digest updates are automatically applied.
+- **Insight**: This is a separate Tekton pipeline from the earlier Konflux build pipelines (which were deleted in #129). Unlike those, this pipeline runs integration tests (not container builds) and is triggered on-demand via PR comments rather than automatically on every PR. The Renovate config specifically targets Tekton bundle references (OCI image digests in PipelineRun YAML), auto-merging these updates because they are low-risk and frequent.
 
 ## Superseded / Semi-Obsolete
 

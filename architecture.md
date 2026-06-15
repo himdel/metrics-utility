@@ -617,6 +617,12 @@
 - **What happened**: The `hash(value, salt)` function (SHA-256 digest of `salt:value`) and the `salt` parameter were removed from `anonymize_data()` and `anonymize_rollups()`. Previously, job template names in `jobs_by_job_type/launch_type/ansible_version` were hashed with the salt. This code was removed entirely -- the current anonymization strategy replaces custom/unknown values with the literal string `"Custom"` rather than hashing them. The anonymization logic was also refactored: repetitive per-field anonymization blocks were consolidated into `_anonymize_custom_items()` (for module_stats, collection_stats, role_stats) and `_anonymize_installed_collections_versions()` helper functions. The `collections.json` loading was extracted into `_load_known_collections()`.
 - **Insight**: Hashing customer-identifiable values (like job template names) was unnecessary once the rollup grouping was changed from per-template to per-job-type (#319) -- the values are no longer present in the output, so there is nothing to hash. Removing the salt simplifies the API and eliminates a parameter that callers had to manage. **Supersedes** the SHA-256 hashing from #250 and the salt-based anonymization from #239.
 
+### Embedded dashboard app removed, replaced by standalone HTML tool for dev use
+- **Repo**: ansible/metrics-service
+- **Commits**: be9e010 (#253), 6316a02 (#254)
+- **What happened**: The `apps/dashboard/` Django app was entirely deleted in #253: the monolithic `dashboard.html` template (~1337 lines of inline HTML/CSS/JS), the `DashboardConfig` app class, URL routing (`apps/dashboard/urls.py`), the `require_development_mode` view decorator, all dashboard tests, and all settings references (INSTALLED_APPS, TEMPLATES DIRS, pyproject.toml package-data). The dashboard had been part of the service since c6947ce (#14) and enhanced through edb4626 (#25) to ~1400 lines. Two days later, #254 added a replacement: a standalone `tools/tasks/dashboard.html` file (1042 lines) that runs entirely outside Django -- it opens via `file://` or any static server, connects to the local API using Basic auth (via a login form), and communicates via fetch calls with `Authorization: Basic ...` headers. To support cross-origin access from the standalone dashboard, an inline `_DevCorsMiddleware` was added to `apps/settings/development.py` that handles OPTIONS preflight and adds CORS headers when an Origin header is present. The middleware is injected at position 0 via Dynaconf's `@insert 0` marker. The `dev.sh` script gained a `--init` flag that runs `migrate` and creates an `admin/admin` superuser for quick dashboard setup.
+- **Insight**: The architectural shift from an embedded Django app to a standalone HTML file reflects a separation of concerns: the production UI now lives in an external dashboard repo, while the dev-only monitoring tool has zero Django dependency and requires no build system or deployment configuration. Using Basic auth instead of session auth makes the standalone tool stateless and cross-origin compatible. The inline CORS middleware (dev-only, no pip dependency) is the simplest possible implementation -- it trusts any Origin header, which is acceptable because it's gated by the `development` settings file.
+
 ## Superseded / Semi-Obsolete
 
 ### Animal model and related API endpoints
@@ -690,3 +696,7 @@
 ### Monolithic tasks_collector.py (1453 lines)
 - **Repo**: ansible/metrics-service
 - Deleted in e137d39 (#92). Replaced by the `apps/tasks/collectors/` subdirectory with specialized modules.
+
+### Embedded apps/dashboard/ Django app for task monitoring
+- **Repo**: ansible/metrics-service
+- The `apps/dashboard/` app (monolithic HTML template with inline JS/CSS, session-based auth, Django view with `require_development_mode` decorator) was deleted in be9e010 (#253). The production UI is now provided by an external dashboard repo. A standalone `tools/tasks/dashboard.html` file was added in 6316a02 (#254) as a dev-only replacement using Basic auth and no Django dependency.

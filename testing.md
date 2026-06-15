@@ -299,6 +299,12 @@
 - **What happened**: 38 test files were added under `tests/coverage/` (organized into `core/`, `tasks/`, `dashboard_reports/`, `dynamic_settings/`, `general/` subdirectories) containing 617+ targeted unit tests. Coverage improved from 25% to 89.4%, crossing the `fail_under=80` threshold in `pyproject.toml`. Key infrastructure changes: `apps/settings/test.py` defaults `DATABASES__default__HOST` to `127.0.0.1` (explicit IPv4 -- macOS resolves `localhost` to IPv6 first, which fails for Docker-mapped postgres ports); `settings.local.py` applies the same fix for local dev; `tests/coverage` added to pytest `testpaths`. Four Sonar exclusions were added for untestable boilerplate: `asgi.py`, `wsgi.py`, `test_urls.py`, and `metrics_service/settings.py`. The PR went through 13 iterative commits fixing CI hangs (mocking `time.sleep` in management command tests, restoring signal handlers after tests), lint violations (83 auto-fixes via ruff), weak assertions (removing `or True` tautologies, using specific exception types), and CodeRabbit review feedback.
 - **Insight**: The IPv4-vs-IPv6 issue (`localhost` resolving to `::1` on macOS while Docker postgres only listens on `127.0.0.1`) is a common cross-platform testing pitfall. Explicitly defaulting to `127.0.0.1` in test settings avoids it. The iterative fix-up cycle (13 commits in one PR) shows the cost of a massive coverage push -- each round of CI reveals new issues (test hangs, lint violations, assertion weaknesses) that couldn't be caught locally.
 
+### Regression tests for pandas 3.0 NaN behavior in dedup and extraction
+- **Repo**: ansible/metrics-utility
+- **Commits**: 3fc4c25 (#431)
+- **What happened**: Two categories of tests were added for the pandas 3.0 upgrade: (1) `test_dataframe_main_jobevent.py` (~390 lines) covering `extract_collection_name`, `extract_role_name`, `prepare`, `group`, `regroup`, and the `add_raw`/`from_tarballs` integration path, with explicit `float('nan')` cases for the `isinstance(x, str)` guard. (2) Two regression tests in `TestDedupCCSP`: `test_df_to_mapping_nan_float_serials` verifies that `float('nan')` serials don't cause unrelated hosts to merge (the bug where `bool(float('nan'))` is `True`), and `test_df_to_mapping_empty_string_serials` verifies that empty strings are also filtered out. Both tests construct DataFrames with intentionally broken serial data and assert that hosts with invalid serials are not merged together and that no NaN keys appear in the mapping dict.
+- **Insight**: When fixing a behavioral change in a core dependency (pandas NaN semantics), always add regression tests that use the exact problematic value (`float('nan')`) as input -- these tests document the bug and prevent reintroduction if the guard logic is refactored.
+
 ### CRC billing provider params contract test
 - **Repo**: ansible/metrics-utility
 - **Commits**: d55fe33 (#401)
@@ -323,6 +329,12 @@
 - **What happened**: A mock Segment HTTP server was added in Go (`tools/mock-segment-server/main.go`) that accepts any POST, returns `{"success":true}`, and stores captured requests in memory. It exposes `GET /requests` (return all captured POSTs as JSON array) and `GET /reset` (clear state). The existing `test_from_gather_to_json.py` integration test was extended to send the computed anonymized rollup JSON to the mock server via `StorageSegment(write_key='test-key', host=MOCK_SEGMENT_URL)`, then assert that the correct number of chunked track events were received with the expected event name, artifact name, and chunk metadata. The `StorageSegment` class gained a `host` setting (passed through to `analytics.host`) to allow redirecting to the mock. CI was updated to build and start the Go server before pytest, and a Docker Compose service was added for local dev. The mock server was initially written in Python but replaced with Go for reliability.
 - **Insight**: Testing the full Segment shipping path (chunking, event structure, metadata) requires an actual HTTP server that captures requests -- mocking the analytics SDK at the Python level would miss chunking bugs and HTTP-level issues. Using Go for the mock server keeps it simple, fast, and dependency-free.
 
+### Test patches for DeveloperModeRequired removed with RBAC migration
+- **Repo**: ansible/metrics-service
+- **Commits**: be9e010 (#253)
+- **What happened**: Multiple test files that patched `apps.core.permissions.DeveloperModeRequired.has_permission` to return `True` (or used `@override_settings(MODE="development")`) for tasks API and dashboard report access were simplified. The patches were removed and tests now make plain API calls, since `IsSystemAdminOrAuditor` uses standard RBAC authentication (the test fixtures already create admin users). Dashboard-specific tests (`test_url_for_*`, `test_dashboard_view_*`) were deleted along with the `apps/dashboard/` app. The unused `api_client` and `org_member_rd` test fixtures were also removed.
+- **Insight**: Switching from a mode-based permission to an RBAC-based permission simplifies tests because the test user fixtures already satisfy RBAC requirements -- no more patching or mode overriding needed for every endpoint test.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py
@@ -343,4 +355,4 @@
 
 ### DEVELOPER_MODE_ENABLED = True in test settings
 - **Repo**: ansible/metrics-service
-- Replaced in 7db9971 (#87) by per-test `@override_settings(MODE="development")`. Tests that need dashboard/task API access explicitly opt in rather than globally setting a flag.
+- Replaced in 7db9971 (#87) by per-test `@override_settings(MODE="development")`. Then fully eliminated in be9e010 (#253) when the tasks API switched to `IsSystemAdminOrAuditor` RBAC -- tests no longer need any mode override for task endpoint access.

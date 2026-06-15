@@ -112,6 +112,16 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: ci_cd.md
 - **Evolution**: created then immediately reverted (wrong file contents, 5 minutes apart)
 
+### Task API permission evolution
+- **Files**: api_design.md, settings_and_configuration.md
+- **Evolution**: AllowAny (initial, marked "temporary") -> DeveloperModeRequired checking DEVELOPER_MODE_ENABLED (#65) -> DeveloperModeRequired checking settings.MODE (#87) -> IsSystemAdminOrAuditor from DAB RBAC (#253)
+- **PRs**: 4 (#65, #87, #253 plus initial)
+
+### Dashboard app lifecycle
+- **Files**: architecture.md, settings_and_configuration.md
+- **Evolution**: monolithic inline HTML template in apps/dashboard/ (#14) -> enhanced to ~1400 lines (#25) -> URL moved from /dashboard/ to /api/dashboard/ (#184) -> embedded app deleted, production UI externalized (#253) -> standalone tools/tasks/dashboard.html added for dev use with Basic auth and inline CORS middleware (#254)
+- **PRs**: 5 (#14, #25, #184, #253, #254)
+
 ### DRF Spectacular / OpenAPI
 - **Files**: api_design.md, dependencies_and_packaging.md
 - **Evolution**: added initially -> removed during DAB retrofit (#73, API docs to be handled by `ansible_base.api_documentation`) -> re-added with comprehensive OpenAPI documentation and auto-sync workflow (#196)
@@ -238,6 +248,16 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: architecture.md, metrics_collection.md
 - **Evolution**: collectors imported AWX Python modules directly (original) -> replaced with direct SQL against `conf_setting` (#242) -> `config_django` fallback collector added for fields only available via Django settings (#354) -> controller version simplified to `main_instance` only (#257)
 - **PRs**: 3-4 (#242, #245, #257, #354)
+
+### Pandas version evolution and NaN compatibility
+- **Files**: dependencies_and_packaging.md, bugs_and_pitfalls.md
+- **Evolution**: `pandas==2.2.1` exact pin to match AWX (#45) -> relaxed to `>=2.2.3` for Python 3.13 wheels (#96) -> upgraded to `~=3.0` with four breaking-change fixes for NaN-as-float-in-string-columns, plus openpyxl bumped to `~=3.1.5` (#431)
+- **PRs**: 3 (#45, #96, #431)
+
+### Cross-repo CI testing
+- **Files**: ci_cd.md
+- **Evolution**: metrics-utility and metrics-service tested independently in their own CI (original) -> metrics-utility CI now also clones metrics-service@devel and runs its tests with the local metrics-utility checkout installed as editable (#427)
+- **PRs**: 1 (#427), likely to be extended
 
 ### Docker Compose port flip-flop
 - **Files**: bugs_and_pitfalls.md

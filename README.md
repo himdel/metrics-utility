@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | ec24d69 | 2026-06-04 | tests run_*_ext: don't create __pycache__, remove unused var, add lang & tz default (#419) |
-| metrics-service | b7c4b1f | 2026-06-05 | AAP-77009: rename FEATURE_ENABLED→FEATURE, make feature flags env-var driven (#250) |
+| metrics-utility | 87dfbcd | 2026-06-11 | Bump pre-commit from 4.5.1 to 4.6.0 (#421) |
+| metrics-service | 6316a02 | 2026-06-10 | Standalone task dev dashboard (#254) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

@@ -88,6 +88,12 @@
 - **What happened**: A new `GET /api/v1/dashboard_reports/report/export/` endpoint was added to `DashboardReportViewSet` as a custom `@action`. It supports `export_format` (currently only `csv`, extensible to `pdf`) and `report_type` (`summary`, `roi`, `trends`) query parameters, reusing all existing dashboard filter parameters. The implementation uses a `PassthroughRenderer` (DRF `BaseRenderer` subclass with `media_type="text/csv"`) to bypass DRF serialization and return an `HttpResponse` with `Content-Disposition: attachment`. The `sec2time()` utility was moved from `serializers.py` to a new `apps/dashboard_reports/utils.py` for reuse by both the serializer and the CSV export logic. Pagination query parameters were extracted into a reusable `PAGINATION_QUERY_PARAMETERS` list shared by the `details` and `export` actions.
 - **Insight**: Using a `PassthroughRenderer` that returns data as-is is the cleanest DRF pattern for file download endpoints. It avoids fighting DRF's content negotiation while keeping the endpoint inside the viewset (with its permission classes and filter logic). Extracting shared OpenAPI parameter definitions into module-level lists reduces duplication between actions.
 
+### Tasks API switched from DeveloperModeRequired to IsSystemAdminOrAuditor RBAC permission
+- **Repo**: ansible/metrics-service
+- **Commits**: be9e010 (#253)
+- **What happened**: `TaskViewSet` and `TaskExecutionViewSet` switched from `permission_classes = [DeveloperModeRequired]` to `[IsSystemAdminOrAuditor]` (from `ansible_base.rbac.api.permissions`). The `DeveloperModeRequired` permission class and its `require_development_mode` view decorator were deleted entirely. The entire `apps/core/permissions.py` file was removed. Tests that previously patched `DeveloperModeRequired.has_permission` to return `True` were simplified to plain API calls, since `IsSystemAdminOrAuditor` uses standard RBAC (system admin or auditor roles) rather than a mode-based gate. This change was coupled with the dashboard removal -- once the dashboard no longer needed a dev-mode gate, the tasks API could use real RBAC.
+- **Insight**: Replacing a mode-based permission gate (only accessible when `settings.MODE == "development"`) with a role-based one (accessible to system admins and auditors regardless of mode) makes the tasks API usable in production environments where operators need to monitor task status. The DeveloperModeRequired pattern was appropriate when the tasks API was experimental, but became a barrier once the task system was production-ready.
+
 ### Comprehensive OpenAPI specification with auto-sync to downstream repo
 - **Repo**: ansible/metrics-service
 - **Commits**: 6ee2d93 (#196)
@@ -107,7 +113,11 @@
 - The `ConfigView` from 8b4aa31 (#26) was replaced by `SettingView` in f4b136e (#31) with DB-backed change tracking, input validation, and rollback capability.
 
 ### AllowAny permission on TaskViewSet
-- The temporary `AllowAny` permission was replaced by `DeveloperModeRequired` in dbf6fb1 (#65), gating task API access behind the `DEVELOPER_MODE_ENABLED` setting.
+- The temporary `AllowAny` permission was replaced by `DeveloperModeRequired` in dbf6fb1 (#65), gating task API access behind the `DEVELOPER_MODE_ENABLED` setting. Then `DeveloperModeRequired` was itself replaced by `IsSystemAdminOrAuditor` in be9e010 (#253), making the tasks API accessible to system admins/auditors in any mode.
+
+### DeveloperModeRequired permission class
+- **Repo**: ansible/metrics-service
+- The `DeveloperModeRequired` permission class (checking `settings.MODE == "development"`) was deleted in be9e010 (#253). The tasks API now uses DAB's `IsSystemAdminOrAuditor` RBAC permission instead. See also: `DEVELOPER_MODE_ENABLED` superseded entry in settings_and_configuration.md.
 
 ### Custom BaseModelSerializer with auto read-only fields and CountFieldMixin
 - Replaced in 5fb6ead (#73) by DAB's `NamedCommonModelSerializer` and `CommonUserSerializer` for core models. The tasks app retained a simpler custom `BaseModelSerializer`.

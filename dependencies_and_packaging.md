@@ -263,6 +263,12 @@
 - **What happened**: The `cryptography` transitive dependency was bumped from 45.0.6 to 48.0.0 via `uv lock --upgrade-package cryptography`. CVE-2026-39892 affects cryptography >=45.0.0 and <46.0.7 (buffer overflow when non-contiguous Python buffers are passed to cryptography APIs like `Hash.update()`). Since `cryptography` is a transitive dependency pulled in by `django-ansible-base`, no changes to `pyproject.toml` were needed -- only `uv.lock` was updated (85 lines changed).
 - **Insight**: For transitive dependencies, `uv lock --upgrade-package <pkg>` is the minimal fix: it bumps only the target package in the lockfile without touching `pyproject.toml` or other dependencies. This is preferable to a full `uv lock --upgrade` which could introduce unrelated breaking changes.
 
+### Pandas upgraded from 2.x to 3.0 with compatible-release cap
+- **Repo**: ansible/metrics-utility
+- **Commits**: 3fc4c25 (#431)
+- **What happened**: pandas was upgraded from `>=2.2.3` to `~=3.0` (i.e., `>=3.0.0,<4.0.0`) in `pyproject.toml`, and from `~=2.2.1` to `~=3.0` in `setup.cfg`. openpyxl was upgraded from `==3.1.2` to `~=3.1.5` because pandas 3.0 requires openpyxl >= 3.1.5. The version pin went through several iterations within the PR: initially `>=3.0.0` (too permissive), then `~=3.0` (compatible release, prevents 4.0). openpyxl similarly went from exact pin `==3.1.5` to `~=3.1.5` (allows 3.1.x patches). The `setup.cfg` pins were aligned with `pyproject.toml` for consistency, though `install_requires` in `setup.cfg` is superseded by `pyproject.toml` `[project].dependencies` and has no functional impact.
+- **Insight**: When a major dependency upgrade (pandas 2.x -> 3.0) requires a transitive dependency bump (openpyxl >= 3.1.5), use compatible-release pins (`~=3.0`) rather than unbounded minimums (`>=3.0.0`) to prevent silent breakage from the next major version. The dual `pyproject.toml` / `setup.cfg` pin alignment is a consistency-only concern since only one is authoritative.
+
 ### metrics-utility lower bound bumped to >=0.8.0 (salt removal)
 - **Repo**: ansible/metrics-service
 - **Commits**: ff2eb2f (#229)
@@ -270,6 +276,10 @@
 - **Insight**: When a library removes a parameter from its API, the service-side dep spec must be bumped to reject the old version -- otherwise the lockfile could resolve to an incompatible release. The 0.7/2.7 maintenance branch uses the salt param consistently, so this bump only affects devel/main.
 
 ## Superseded / Semi-Obsolete
+
+### pandas >=2.2.3 and openpyxl ==3.1.2
+- **Repo**: ansible/metrics-utility
+- Upgraded to `pandas~=3.0` and `openpyxl~=3.1.5` in 3fc4c25 (#431). The upgrade required code fixes for pandas 3.0's NaN-in-string-columns behavior change.
 
 ### requirements.txt as primary dependency source
 - **Repo**: ansible/metrics-service
