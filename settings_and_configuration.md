@@ -534,3 +534,15 @@
 ### ServicePrefixMiddleware derived prefix from ROOT_URLCONF only
 - **Repo**: ansible/metrics-service
 - The middleware originally derived the service name from `settings.ROOT_URLCONF` only. In 35620f8 (#157), it was updated to use `settings.URL_PREFIX` when set, with ROOT_URLCONF as fallback.
+
+### Framework alignment: project settings moved from protected files to apps/settings layer
+- **Repo**: ansible/metrics-service
+- **Commits**: 6c01004 (#267)
+- **What happened**: AAP-69237 compliance required `metrics_service/settings.py` to match the platform-service-framework (PSF) template exactly. All project-specific code was moved out: (1) Segment key loading moved to `apps/core/segment.py` with a Dynaconf `@post_hook` in `apps/settings/defaults.py`. (2) `ALLOWED_HOSTS` parsing (CSV/JSON) moved to a `parse_allowed_hosts_env` post-hook. (3) JSON logging setup moved to a `setup_json_logging_for_production` post-hook. (4) WhiteNoise middleware, template dirs, dashboard collection config, and staticfiles dirs all moved to `defaults.py`. (5) PostgreSQL OPTIONS normalization removed entirely (installer now handles via `DATABASES__awx__OPTIONS__options` env var). (6) The `_mode` detection logic simplified -- `PRODUCTION=1/true/yes` fallback removed, just reads `METRICS_SERVICE_MODE`. (7) A `framework-validation.yml` workflow re-added (using `uvx ... validate` from the PSF repo). (8) `manage.py` made executable (100755) to match template. Post-hooks return dicts (not call `.set()`) which is the correct Dynaconf pattern.
+- **Insight**: The PSF distinguishes between "protected files" (must match template exactly) and "editable files" (like `apps/settings/defaults.py`). Dynaconf `@post_hook` functions are the correct mechanism for project-specific settings that depend on other settings being loaded first -- they return a dict of values to set, not call `.set()` directly. `PSF-OVERRIDE` markers should only be used in protected files.
+
+### Dynaconf post-hook pattern: return dict, do not call .set() directly
+- **Repo**: ansible/metrics-service
+- **Commits**: 6c01004 (#267)
+- **What happened**: The initial implementation of the Segment key post-hook called `dynaconf_instance.set()` directly inside the hook. This is incorrect -- Dynaconf `@post_hook` functions must return a dict with the keys/values to set. The hook was fixed to `return {"SEGMENT_WRITE_KEY": key}` (or `return {}` when no change needed). Similarly, the ALLOWED_HOSTS parsing, which previously called `DYNACONF.set("ALLOWED_HOSTS", allowed_hosts)` inline in `settings.py`, was converted to a post-hook returning `{"ALLOWED_HOSTS": allowed_hosts}`.
+- **Insight**: Dynaconf `@post_hook` functions must return a dict of values to set, not call `.set()` directly. This is a subtle API distinction that can cause silent failures if done wrong.

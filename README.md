@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 87dfbcd | 2026-06-11 | Bump pre-commit from 4.5.1 to 4.6.0 (#421) |
-| metrics-service | 6316a02 | 2026-06-10 | Standalone task dev dashboard (#254) |
+| metrics-utility | 1c53c4b | 2026-06-22 | pin GitHub Actions to commit SHAs with version comment (#449) |
+| metrics-service | 1f5998d | 2026-06-22 | Bump codecov/codecov-action from 6.0.1 to 7.0.0 (#288) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

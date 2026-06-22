@@ -348,3 +348,9 @@
 ### metrics-utility bumped to 0.7.20260313
 - **Repo**: ansible/metrics-service
 - Bumped in 26614c4 (#113) for anonymization fixes (StorageSegment `segment_meta` parameter). See the consolidated version bumps entry in the main section.
+
+### Dependabot uv ecosystem for Python dependency updates
+- **Repo**: ansible/metrics-service
+- **Commits**: 76f179e (#284)
+- **What happened**: Added `package-ecosystem: 'uv'` entry to `.github/dependabot.yml` to enable automated Python dependency updates for `pyproject.toml` / `uv.lock`. The first batch of dependabot PRs (#288-#294) bumped: ruff 0.12.10->0.15.18, pytest-asyncio 1.1.0->1.4.0, isort 6.0.1->8.0.1, django-prometheus 2.4.1->2.5.0, croniter 6.0.0->6.2.2, SonarSource/sonarqube-scan-action 8.1.0->8.2.0, codecov/codecov-action 6.0.1->7.0.0.
+- **Insight**: Dependabot's `uv` ecosystem support enables automated dependency updates for projects using uv's `pyproject.toml` + `uv.lock` workflow, complementing the `github-actions` ecosystem for CI actions. Monthly schedule keeps update frequency manageable.

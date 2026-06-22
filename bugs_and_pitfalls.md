@@ -616,3 +616,32 @@
 - **Commits**: eb853d8 (#448)
 - **What happened**: The `cleanup_glob` fixture in `test_json_schema.py` (added in #428) removed files at the start of the fixture but never yielded, so pytest treated the fixture as setup-only -- it cleaned up before the test ran but not after. This left actual tarballs behind after test execution, potentially interfering with subsequent test runs. The fix added `yield` and moved cleanup to after the yield (teardown phase).
 - **Insight**: A pytest fixture that performs cleanup must use `yield` to separate setup from teardown -- without `yield`, the entire fixture body runs before the test, and no teardown occurs. This is a common pytest fixture authoring mistake, especially when copying cleanup patterns from other test files.
+
+### argparse None vs empty string for optional arguments
+- **Repo**: ansible/metrics-service
+- **Commits**: 686dfee (#278)
+- **What happened**: The `metrics_service tasks create` management command had `add_argument("--description", help="...")` without a `default`. When `--description` was omitted, argparse set the value to `None`. The code used `options.get("description", "")` but the fallback never triggered because the key exists (its value is just `None`). This passed `NULL` to the DB's description column. Fix: `add_argument("--description", default="", ...)`.
+- **Insight**: `dict.get(key, default)` only uses the default when the key is absent, not when the value is `None`. For argparse optional arguments that should default to empty string, always set `default=""` explicitly.
+
+### Retry base delay must not be a multiple of task cron spacing
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- See [task_system.md](task_system.md#retry-base-delay-changed-from-10-to-8-minutes-to-avoid-collision-with-5-minute-task-spacing) for the full entry. Summary: `RETRY_BASE_DELAY_SECONDS` changed from 600 (10 min) to 480 (8 min) because 10 minutes is a multiple of the 5-minute task cron spacing, causing retry collisions. Coprime intervals eliminate systematic collisions.
+
+### SEGMENT_MAX_ATTEMPTS mistakenly applied to local-only anonymize task
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- **What happened**: `SEGMENT_MAX_ATTEMPTS` (7) was mistakenly applied to the `daily_anonymize_and_prepare` task group entry in #220. This task only does local DB work (anonymize + create payload); the dynamically created `send_to_segment` task already gets `max_attempts=7` correctly in `daily_anonymize_and_prepare.py:123`. Reverted to the model default (3) by removing the `"max_attempts": SEGMENT_MAX_ATTEMPTS` line.
+- **Insight**: Extended retry attempts should only be applied to tasks that interact with external services (where multi-hour outages are expected). Local DB-only tasks should use the default retry count.
+
+### Renovate cron wildcard minute ran every minute instead of once per interval
+- **Repo**: ansible/metrics-service
+- **Commits**: 7e78597 (#281)
+- **What happened**: The `renovate.json` Tekton schedule was `"* */12 * * 1-5"` -- the `*` in the minute position meant "run every minute for each matching hour", not "run once at each matching hour". This would fire 60 Renovate PRs per 12-hour window. Fixed to `"0 */12 * * 1-5"`. A PR check was also added to `pr-checks.yml` that greps for `"schedule".*"\* ` in `renovate.json` to prevent future wildcard-minute regressions.
+- **Insight**: Cron's `*` in the minute field means "every minute", not "any minute" -- always specify a minute value (typically `0`) when using step expressions like `*/12` for hours. Adding a CI check for this pattern prevents the mistake from recurring.
+
+### Stale psycopg3 connections not detected by Django's ensure_connection()
+- **Repo**: ansible/metrics-service
+- **Commits**: 33db88a (#273)
+- **What happened**: `get_db_connection()` called `django_connection.ensure_connection()` to get the raw psycopg connection, but `ensure_connection()` only reconnects when `self.connection is None`. A connection dropped by the server (network partition, server restart) is not `None` -- it's a stale psycopg3 object. The fix adds a `SELECT 1` probe before `ensure_connection()`: if the probe raises (either because `.closed` is True or from a silent network drop), the connection is closed (setting it to None) so `ensure_connection()` will reconnect. The `close_old_connections()` approach cannot be used here because it closes ALL connections including ones holding advisory locks.
+- **Insight**: Django's `ensure_connection()` does not detect dead connections -- it only reconnects when the connection attribute is `None`. For long-lived processes that use raw DB connections (not ORM), probe with `SELECT 1` before use. This is especially important for psycopg3 where a server-side disconnect leaves a stale object rather than setting it to `None`.

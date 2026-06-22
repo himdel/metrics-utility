@@ -322,7 +322,7 @@
 - The hardcoded constant from e7558f7 (#211) was replaced in 0b00a81 (#218) by `django_settings.TASK_TIMEOUT`. In c680e42 (#228), a module-level `STUCK_TASK_TIMEOUT_SECONDS = django_settings.TASK_TIMEOUT` alias was added for readability.
 
 ### Fixed 10-minute retry delay with 3 max attempts
-- Replaced in 9fcd1d2 (#220) by exponential backoff (`compute_retry_delay()`) with `SEGMENT_MAX_ATTEMPTS = 7`, extending the retry window from ~30 minutes to ~10.5 hours for Segment tasks.
+- Replaced in 9fcd1d2 (#220) by exponential backoff (`compute_retry_delay()`) with `SEGMENT_MAX_ATTEMPTS = 7`, extending the retry window from ~30 minutes to ~10.5 hours for Segment tasks. Then in 9c6ed6f (#276) the base delay was changed from 600s (10 min) to 480s (8 min) because 10 minutes is a multiple of the 5-minute task cron spacing, causing retry collisions. Also, `SEGMENT_MAX_ATTEMPTS` was removed from the `daily_anonymize_and_prepare` task group entry (it only applies to the dynamically created `send_to_segment` task).
 
 ### send_to_segment_daily as a fixed cron task
 - The daily cron entry (`30 3 * * *`) was removed in 8d4ae7e (#183). Segment sending is now triggered as a one-time task with jittered timing, created inside the anonymization transaction. This prevents thundering herd across installations.
@@ -338,3 +338,25 @@
 
 ### Thread-based service management with ProcessManager
 - The `ProcessManager` class and thread-based service orchestration were removed in 0c14d9c (#85). The `metrics_service run` command now spawns three OS processes directly with selectors-based I/O multiplexing.
+
+### Stale advisory lock cleanup in scheduler periodic sync
+- **Repo**: ansible/metrics-service
+- **Commits**: a6bb3ad (#277)
+- **What happened**: Network partitions can keep a PostgreSQL session alive for hours (`tcp_keepalives_idle` defaults to 7200s), leaving advisory locks held by dead workers even after the stuck-task detector marks their tasks as failed. A new `_cleanup_stale_advisory_locks()` method runs every 30s in `_periodic_database_sync`, right after `_fail_stuck_tasks()` (which was extracted from the inline code in the same PR). It queries `pg_locks` joined with `pg_stat_activity` for sessions that: hold advisory locks, are idle, have been idle longer than `STUCK_TASK_TIMEOUT_SECONDS`, and hold locks matching `TASK_LOCKS` function names (via `hashtext(name)::bigint`). Matching sessions are terminated with `pg_terminate_backend()`. The lock ID computation mirrors `lock.py`: `hashtext(name)::bigint` with Python-style modulo `2**63`. Only known task lock names are targeted to avoid killing sessions from other applications.
+- **Insight**: Stuck task detection marks a task as failed but cannot release the advisory lock held by the dead worker's PostgreSQL session. TCP keepalive defaults (2 hours) mean the session and its lock can persist long after the worker dies. Actively terminating stale sessions is necessary to unblock the next task attempt. Scoping to known lock IDs prevents collateral damage to other applications sharing the database.
+
+### Retry base delay changed from 10 to 8 minutes to avoid collision with 5-minute task spacing
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- **What happened**: `RETRY_BASE_DELAY_SECONDS` changed from 600 (10 min) to 480 (8 min). With 5 hourly collector tasks spaced 5 minutes apart (:00, :05, :10, :15, :20), a 10-minute base delay caused retry collisions. With 8-minute spacing (not a multiple of 5), all 15 execution slots (5 tasks x 3 attempts) are unique, completing by :44 (16 min before next hour). The comment in code now documents the rationale: "must not be a multiple of 5 (task cron spacing) to avoid retry collisions".
+- **Insight**: Retry intervals should be coprime with the task scheduling interval to avoid systematic collisions between retries and fresh task attempts.
+
+### SEGMENT_MAX_ATTEMPTS removed from daily_anonymize_and_prepare task group
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#segment_max_attempts-mistakenly-applied-to-local-only-anonymize-task) for the full entry. Summary: `SEGMENT_MAX_ATTEMPTS` (7) was mistakenly applied to `daily_anonymize_and_prepare` (local DB-only task) in #220; reverted to model default (3). Extended retry attempts should only apply to tasks interacting with external services.
+
+### Dead database connection reconnect via SELECT 1 probe
+- **Repo**: ansible/metrics-service
+- **Commits**: 33db88a (#273)
+- See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#stale-psycopg3-connections-not-detected-by-djangos-ensure_connection) for the full entry. Summary: `ensure_connection()` doesn't detect dead psycopg3 connections (stale objects are not `None`). A `SELECT 1` probe was added to detect and close dead connections before use.

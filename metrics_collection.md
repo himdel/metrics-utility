@@ -240,8 +240,7 @@
 ### METRICS_COLLECTION feature flag added for local collection control
 - **Repo**: ansible/metrics-service
 - **Commits**: 68a2039 (#191)
-- **What happened**: `METRICS_COLLECTION_GROUP` changed from always-enabled to gated by `METRICS_COLLECTION` flag (default true), allowing operators to pause local collection independently of anonymization.
-- **Insight**: Completes the feature flag evolution. See `task_system.md` for the full arc (single flag -> overly broad -> three independent flags). After upgrading, `init-system-tasks` must be re-run.
+- See [settings_and_configuration.md](settings_and_configuration.md#metrics_collection-feature-flag-added-for-local-collection-control) for the full entry. Summary: `METRICS_COLLECTION_GROUP` changed from always-enabled to gated by `METRICS_COLLECTION` flag (default true). The system now has three flags: `METRICS_COLLECTION`, `ANONYMIZED_DATA_COLLECTION`, `DASHBOARD_COLLECTION`. See `task_system.md` for the full feature flag evolution arc.
 
 ### Segment StorageSegment use_bulk parameter removed -- not supported by target Segment instance
 - **Repo**: ansible/metrics-service

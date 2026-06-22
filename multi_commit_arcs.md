@@ -137,7 +137,27 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Evolution**: per-task `timeout_seconds` DB field + hardcoded `STUCK_TASK_TIMEOUT_SECONDS` constant + CLI `--timeout` flag -> stuck detection added (#211) -> exponential backoff (#220) -> all consolidated into single TASK_TIMEOUT Dynaconf setting (#218/#228)
 - **PRs**: ~4
 
+### Task system resilience (connection, retry, locks)
+- **Files**: task_system.md, bugs_and_pitfalls.md, database_and_migrations.md
+- **Evolution**: stale psycopg3 connections not detected by `ensure_connection()` -- SELECT 1 probe added (#273) -> retry base delay changed from 10 to 8 min (coprime with 5-min task spacing) to avoid retry collisions, SEGMENT_MAX_ATTEMPTS removed from local-only task (#276) -> stale advisory locks from dead workers cleaned up via `pg_terminate_backend()` in scheduler periodic sync (#277) -> argparse None vs empty string for task description fixed (#278)
+- **PRs**: 4 (#273, #276, #277, #278)
+
+### Retry timing and coprime intervals
+- **Files**: task_system.md, bugs_and_pitfalls.md
+- **Evolution**: fixed 10-min retry delay with 3 max attempts (#167) -> exponential backoff with 7 max attempts for Segment tasks (#220) -> base delay changed from 600s to 480s (coprime with 5-min spacing), SEGMENT_MAX_ATTEMPTS removed from wrong task (#276) -> Renovate cron wildcard minute fix (unrelated but same timing lesson) (#281)
+- **PRs**: 4 (#167, #220, #276, #281)
+
+### Framework alignment (platform-service-framework compliance)
+- **Files**: architecture.md, ci_cd.md, settings_and_configuration.md
+- **Evolution**: framework-validation workflow added (#84) -> removed, too strict for custom service (#88) -> settings restructured to single `metrics_service/settings.py` with `apps/settings/` layer (#77) -> framework validation re-added using PSF's own `validate` command, all project-specific code moved out of protected files to Dynaconf post-hooks (#267)
+- **PRs**: 4 (#77, #84, #88, #267)
+
 ## metrics-utility arcs
+
+### Schema validation and schema packaging
+- **Files**: ci_cd.md, bugs_and_pitfalls.md, metrics_utility.md, testing.md
+- **Evolution**: JSON schema validation tests added with CI workflow (#428) -> schema-review CI enhanced with stricter checks (#434) -> schema-review workflow iterated through three rounds of fixes (#436, #438, #440) -> schemas moved from standalone files into the pip-installable package (#444) -> validator `SCHEMAS_DIR` path broken by the move, fixed (#447)
+- **PRs**: 7 (#428, #434, #436, #438, #440, #444, #447)
 
 ### psycopg2/psycopg3 compatibility
 - **Files**: dependencies_and_packaging.md, architecture.md

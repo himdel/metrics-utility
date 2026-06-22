@@ -200,8 +200,7 @@
 ### Production startup validation re-enabled with actionable error messages
 - **Repo**: ansible/metrics-service
 - **Commits**: 956923d (#193)
-- **What happened**: Dynaconf validation was re-enabled (`validation=True`) in `metrics_service/settings.py`, reversing the `validation=False` from #143. All four production validators were uncommented with enhanced error messages: `RESOURCE_SERVER__SECRET_KEY`, `ANSIBLE_BASE_JWT_KEY`, `SEGMENT_WRITE_KEY` (explains both env var and file path), and `ALLOWED_HOSTS` (explains comma-separated and JSON array formats). The SEGMENT_WRITE_KEY validator note explains "Key is baked into container image at build time - always present even in air-gapped environments." SonarCloud was updated to exclude settings directories from analysis.
-- **Insight**: The validation saga (added -> broke -> turned off -> re-enabled) took 5 PRs over 3 months. The key lesson: validators need actionable error messages from the start. A validator that says "ALLOWED_HOSTS must be set" is frustrating; one that says "Set METRICS_SERVICE_ALLOWED_HOSTS to a comma-separated list or JSON array of hostnames" is immediately actionable. Production deployments now fail fast with clear instructions instead of starting up misconfigured and failing at runtime.
+- See [settings_and_configuration.md](settings_and_configuration.md#production-startup-validation-re-enabled-with-actionable-error-messages) for the full entry. Summary: Dynaconf `validation=True` re-enabled after being disabled in #143. All four production validators uncommented with actionable error messages specifying exact env vars to set. This concluded a 5-PR validation saga (#26 -> #129 -> #137 -> #143 -> #193).
 
 ## Superseded / Semi-Obsolete
 

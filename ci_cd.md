@@ -306,3 +306,27 @@
 ### SonarCloud PR validation via commits/{sha}/pulls API (m-s)
 - **Repo**: ansible/metrics-service
 - The `commits/{sha}/pulls` approach from 8ba3c14 (#101) was replaced in c4add8a (#134) with direct branch/SHA/repo matching. The old API was unreliable due to GitHub's eventual consistency -- recently pushed commits sometimes returned empty PR lists, causing false validation failures.
+
+### Renovate cron wildcard-minute prevention PR check
+- **Repo**: ansible/metrics-service
+- **Commits**: 7e78597 (#281)
+- **What happened**: The Renovate config's Tekton schedule had `"* */12 * * 1-5"` -- wildcard minute meant "every minute during matching hours" (60 PRs per window). Fixed to `"0 */12 * * 1-5"`. A new PR check step was added to `pr-checks.yml` that greps for `"schedule".*"\* ` in `renovate.json` and fails with an error annotation if found: "Cron schedules in renovate.json must not use * for minutes (runs every minute). Use a specific minute like 0."
+- **Insight**: Cron wildcard-minute is an easy mistake in Renovate/Dependabot schedule configs where the intent is "once per interval" but `*` means "every minute". A CI check prevents this from recurring.
+
+### Tekton pipeline bundle digest update and Renovate config fix
+- **Repo**: ansible/metrics-service
+- **Commits**: 8f78a44 (#271)
+- **What happened**: Updated the Tekton pipeline bundle digest in `.tekton/run-atf-tests-pull-request.yaml` to unblock pipeline runs failing in `report-test-results-to-pr` task. Also fixed a Renovate configuration error and removed AWS spot instance usage from the pipeline. This was a manual update ahead of mint maker automation.
+- **Insight**: Tekton pipeline bundle digests are OCI image references that must be updated when the upstream pipeline image changes. Renovate is configured to auto-merge these updates, but manual intervention is needed when the pipeline is broken and blocking.
+
+### UV ecosystem added to Dependabot config
+- **Repo**: ansible/metrics-service
+- **Commits**: 76f179e (#284)
+- **What happened**: Added `package-ecosystem: 'uv'` to `.github/dependabot.yml` alongside the existing `github-actions` ecosystem. Both use monthly schedule. This enables Dependabot to track Python dependencies in `pyproject.toml` / `uv.lock` and propose version bumps as PRs (the first batch produced PRs #288-#294).
+- **Insight**: With the project using uv for dependency management, Dependabot's `uv` ecosystem support (relatively new) provides automated dependency update PRs for Python packages, complementing the existing `github-actions` ecosystem for CI action version bumps.
+
+### Framework validation workflow re-added using PSF validate command
+- **Repo**: ansible/metrics-service
+- **Commits**: 6c01004 (#267)
+- **What happened**: A `framework-validation.yml` workflow was re-added (previously added in #84 and removed in #88 for being too strict). The new version uses the PSF's own validate command (`uvx --refresh git+https://github.com/${ORG}/platform-service-framework@${BRANCH} validate`) instead of a custom template-comparison approach. It runs on PRs and pushes to devel/main/stable/release branches, dynamically determining the org and branch from the PR context.
+- **Insight**: Framework validation is back, but now uses the framework's own validation tool rather than a rigid file-comparison approach. This is more maintainable because the framework team controls what passes validation.

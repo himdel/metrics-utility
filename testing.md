@@ -374,3 +374,27 @@
 ### DEVELOPER_MODE_ENABLED = True in test settings
 - **Repo**: ansible/metrics-service
 - Replaced in 7db9971 (#87) by per-test `@override_settings(MODE="development")`. Then fully eliminated in be9e010 (#253) when the tasks API switched to `IsSystemAdminOrAuditor` RBAC -- tests no longer need any mode override for task endpoint access.
+
+### URL tests: remove exception suppression and separate test URL config
+- **Repo**: ansible/metrics-service
+- **Commits**: 2347367 (#263)
+- **What happened**: URL tests had broad `suppress(Exception)` and `try/except: pass` patterns that silently swallowed failures, masking dead test code left from the dashboard UI removal (#253). The tests also used a separate `metrics_service/test_urls.py` (set via `ROOT_URLCONF = "metrics_service.test_urls"` in test settings) that excluded DAB routes, claiming "oauth2 provider conflicts" -- but all 2155 tests pass with the real URL config. Three key fixes: (1) Removed all exception suppression, replaced with exact status code assertions (200, 403, 404, 405). (2) Deleted `metrics_service/test_urls.py` and removed the `ROOT_URLCONF` override so tests use real `urls.py`. (3) Fixed a scoping bug where `assert` was outside the `for` loop in `test_url_injection_protection`. Additionally, the test settings `REST_FRAMEWORK` dict was changed from a full replacement to Dynaconf `__` nested-key syntax (`REST_FRAMEWORK__DEFAULT_AUTHENTICATION_CLASSES`, etc.) because the full dict assignment dropped `DEFAULT_RENDERER_CLASSES` set by `defaults.py`, breaking breadcrumb tests in CI.
+- **Insight**: Exception suppression in tests is a double hazard: tests pass silently when the code they exercise is deleted, and a separate test URL config can drift from production config indefinitely. Use exact status code assertions and the real URL config unless you can prove the conflict exists. When overriding nested Dynaconf settings in test config, prefer `__` key syntax over replacing the whole dict to avoid clobbering other keys.
+
+### Dynaconf __ syntax for partial dict overrides in test settings
+- **Repo**: ansible/metrics-service
+- **Commits**: 2347367 (#263)
+- **What happened**: The test settings file (`apps/settings/test.py`) replaced the entire `REST_FRAMEWORK` dict, which dropped `DEFAULT_RENDERER_CLASSES` (ServiceBrowsableAPIRenderer) set by `defaults.py` and `core/settings.py`. Without the custom renderer, breadcrumb URLs in the browsable API lost their service prefix, failing `test_breadcrumbs[api-service-prefix]` in CI. This only appeared in CI because CI sets `METRICS_SERVICE_MODE=test` as a real env var before process start, so `test.py` loads. Locally, pytest-django imports `metrics_service/settings.py` (triggering Dynaconf) before conftest.py's `setdefault` runs, so tests silently ran in development mode. The fix: `REST_FRAMEWORK__DEFAULT_AUTHENTICATION_CLASSES = [...]` etc., overriding only the three keys that differ.
+- **Insight**: When using Dynaconf environment-specific settings files, replacing an entire dict clobbers keys set by earlier layers. Use the `__` (double-underscore) nested-key syntax to override individual keys within a dict. This is especially important for `REST_FRAMEWORK` which accumulates settings from multiple sources.
+
+### Test fixture time offsets must survive midnight UTC boundary
+- **Repo**: ansible/metrics-service
+- **Commits**: a039ec3 (#282)
+- **What happened**: The `job_data` fixture in `test_export_urls.py` used minute-scale offsets (`timedelta(minutes=5)`, `timedelta(minutes=1)`) for recent jobs. CI runs between 00:01-00:05 UTC would split these jobs across two calendar days, producing 3 date buckets instead of the expected 2. Fix: use hour-scale offsets (`timedelta(hours=3)`, `timedelta(hours=2)`) so both jobs always land on the same calendar day regardless of when CI runs.
+- **Insight**: Test fixtures using time offsets from "now" must account for day boundaries. Minute-scale offsets near midnight create flakes -- use hour-scale offsets to ensure all related data points land on the same calendar day.
+
+### Management command test swallowed exceptions, hiding NULL description bug
+- **Repo**: ansible/metrics-service
+- **Commits**: 686dfee (#278)
+- **What happened**: The `test_metrics_service_tasks_create` test wrapped `call_command()` in `try/except (SystemExit, Exception): pass`, so the test "passed" even when the command failed. The underlying bug: `argparse` sets `--description` to `None` when omitted, so `options.get("description", "")` never triggers the default (the key exists, it's just `None`), and `None` was passed to the DB. Fix: add `default=""` to the argparse argument definition, and remove the exception swallow so the test actually verifies task creation with `Task.objects.get()` assertions.
+- **Insight**: Never use bare `except: pass` in tests -- it converts failures into false passes. For argparse arguments where absence should mean empty string (not NULL), use `default=""` in `add_argument()` because `.get(key, fallback)` doesn't trigger the fallback when the key exists with value `None`.

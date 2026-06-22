@@ -473,6 +473,12 @@
 - **What happened**: The final framework integration added: `.copier-answers.yml` (tracking template source and version), `.protected_files.yaml` (listing framework-managed files like `metrics_service/`, `manage.py`, `LICENSE`), `framework-update.yml` workflow (for automated template updates), and `framework-validation.yml` workflow (for PR validation against template). RBAC service URLs (`rbac_service_urls`) were added to the API. The `pyproject.toml` gained poe task runner configuration with `validate` and `update` tasks for framework management. Debug toolbar URL handling was moved from `urls.py` to `settings.py` (loaded via Dynaconf when DEBUG is true).
 - **Insight**: The copier-based template approach means the service can receive upstream framework updates automatically. The `.protected_files.yaml` defines which files the framework fully owns vs. which the project can customize. This creates a clear boundary but requires discipline to not modify protected files.
 
+### Framework alignment: all project code extracted from protected settings.py
+- **Repo**: ansible/metrics-service
+- **Commits**: 6c01004 (#267)
+- **What happened**: AAP-69237 required `metrics_service/settings.py` to exactly match the PSF template. All project-specific logic was extracted: Segment key loading to `apps/core/segment.py` + `@post_hook`, ALLOWED_HOSTS parsing to `@post_hook`, JSON logging to `@post_hook`, WhiteNoise middleware and template dirs to `apps/settings/defaults.py`. PostgreSQL OPTIONS normalization was removed entirely (installer handles via env vars). The framework-validation workflow was re-added using the PSF's own `validate` command. This makes `metrics_service/settings.py` fully template-compliant -- all customization lives in editable `apps/` files.
+- **Insight**: The PSF's protected-file architecture means project customizations must live in `apps/settings/defaults.py` via Dynaconf `@post_hook` functions (return a dict), not in `metrics_service/settings.py` (which must match the template exactly). The old approach of inlining customizations in settings.py worked but created framework drift that blocked template updates.
+
 ### HourlyMetricsCollection and DailyMetricsSummary models for metrics pipeline
 - **Repo**: ansible/metrics-service
 - **Commits**: 3a58426 (#79)
@@ -677,9 +683,9 @@
 - **Repo**: ansible/metrics-service
 - The `ProcessManager` class (341 lines, in `apps/tasks/services/process_manager.py`) was deleted in 0c14d9c (#85). The thread-based service management was replaced by direct `subprocess.Popen` with selectors-based I/O multiplexing.
 
-### Framework validation workflow
+### Framework validation workflow (first attempt)
 - **Repo**: ansible/metrics-service
-- Added in 00e68ad (#84) and removed in 5be118c (#88). The template-comparison validator was too strict for a service with legitimate customizations.
+- Added in 00e68ad (#84) and removed in 5be118c (#88). The template-comparison validator was too strict for a service with legitimate customizations. Re-added in 6c01004 (#267) using the PSF's own `validate` command (`uvx ... validate`) instead of custom template comparison -- see `ci_cd.md` and `settings_and_configuration.md` for the new approach.
 
 ### Tekton/Konflux pipelines in .tekton/
 - **Repo**: ansible/metrics-service

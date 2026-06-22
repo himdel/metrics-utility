@@ -75,3 +75,14 @@
 
 ### Tasks app migrations 0002-0004
 - The `add_system_task_flag`, `add_task_description`, and `auto_20251125_1020` migrations were folded into a rewritten `0001_initial.py` in 5fb6ead (#73). Then migrations 0002-0008 were squashed again in 0fa64ff (#140) into a new `0001_initial.py`.
+
+### SELECT 1 probe for dead connection detection before ensure_connection()
+- **Repo**: ansible/metrics-service
+- **Commits**: 33db88a (#273)
+- See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#stale-psycopg3-connections-not-detected-by-djangos-ensure_connection) for the full entry. Summary: `get_db_connection()` returned stale psycopg3 connections after server-side disconnects. A `SELECT 1` probe was added before `ensure_connection()` to detect and close dead connections. `close_old_connections()` was not viable because it closes ALL connections including ones holding advisory locks.
+
+### Stale advisory lock cleanup via pg_terminate_backend
+- **Repo**: ansible/metrics-service
+- **Commits**: a6bb3ad (#277)
+- **What happened**: After a network partition, PostgreSQL sessions can remain alive for hours (TCP keepalive default is 7200s), holding advisory locks that block task execution. The scheduler's `_periodic_database_sync` now runs `_cleanup_stale_advisory_locks()` every 30s. It joins `pg_locks` with `pg_stat_activity` to find sessions that are idle beyond `STUCK_TASK_TIMEOUT_SECONDS` and hold advisory locks matching known `TASK_LOCKS` names (computed via `hashtext(name)::bigint % 2**63`). Matching sessions are terminated with `pg_terminate_backend()`. The cleanup is scoped to known lock names to avoid terminating sessions from other applications.
+- **Insight**: Advisory locks are tied to PostgreSQL sessions, not transactions. When a worker process dies but its session persists (due to TCP keepalive), the lock blocks all subsequent task attempts. The only way to release it is to terminate the stale session. Always scope cleanup to known lock IDs to avoid collateral damage.
