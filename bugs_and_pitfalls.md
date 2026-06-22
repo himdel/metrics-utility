@@ -604,3 +604,15 @@
 ### Dispatcherd max workers reduced from 4 to 1 as a band-aid
 - **Repo**: ansible/metrics-service
 - Workers 4->1 (#148), then 1->4 (#167) with real fixes. See the main entries above and `task_system.md`.
+
+### Validator tool SCHEMAS_DIR not updated when schemas moved into package
+- **Repo**: ansible/metrics-utility
+- **Commits**: 14ee699 (#444), 154b633 (#447)
+- **What happened**: PR #444 moved schemas from `schemas/` to `metrics_utility/schemas/` and updated the test file and CI workflow, but didn't update the hardcoded `SCHEMAS_DIR` in `tools/validator/validate.py`. The standalone validator uses `Path(__file__).resolve().parent.parent.parent / 'schemas'` which no longer pointed to any directory. PR #447 (same day follow-up) fixed it to `... / 'metrics_utility' / 'schemas'`.
+- **Insight**: When moving package data files, standalone tools that reference the old path are easy to miss because they aren't part of the package import graph -- tests only caught this because the validator was exercised manually, not via CI.
+
+### test_json_schema.py cleanup fixture missing `yield` -- cleanup ran before tests, not after
+- **Repo**: ansible/metrics-utility
+- **Commits**: eb853d8 (#448)
+- **What happened**: The `cleanup_glob` fixture in `test_json_schema.py` (added in #428) removed files at the start of the fixture but never yielded, so pytest treated the fixture as setup-only -- it cleaned up before the test ran but not after. This left actual tarballs behind after test execution, potentially interfering with subsequent test runs. The fix added `yield` and moved cleanup to after the yield (teardown phase).
+- **Insight**: A pytest fixture that performs cleanup must use `yield` to separate setup from teardown -- without `yield`, the entire fixture body runs before the test, and no teardown occurs. This is a common pytest fixture authoring mistake, especially when copying cleanup patterns from other test files.
