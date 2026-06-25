@@ -39,6 +39,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 |------|--------|------|---------|
 | metrics-utility | 1c53c4b | 2026-06-22 | pin GitHub Actions to commit SHAs with version comment (#449) |
 | metrics-service | 1f5998d | 2026-06-22 | Bump codecov/codecov-action from 6.0.1 to 7.0.0 (#288) |
+| awx | 63fafec76f | 2026-02-03 | Remove init return value |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
