@@ -68,6 +68,48 @@
 - **What happened**: Multiple locations (`_collect_data`, `FilterOptionsViewSet.list()`, `FilterOptionsViewSet.retrieve()`) had `finally` blocks calling `.close()` on the raw psycopg connection obtained via `get_db_connection("awx")`. Since `get_db_connection()` returns `connections[db_name].connection` (Django's singleton), closing it invalidated the connection for all concurrent tasks in the same worker process. Django's connection wrapper still thought the connection was alive and skipped reconnection. The fix: removed all manual `.close()` calls; added `close_old_connections()` at entry points (`run_with_lock()`, `HealthView`) where no locks are held.
 - **Insight**: Django's `connections[alias].connection` is a process-wide singleton. The only safe way to clean up stale connections is `close_old_connections()`, and only at boundaries where no connections are actively holding locks or cursors. The `get_db_connection()` docstring now explicitly warns: "DO NOT CLOSE the returned connection."
 
+### CredentialType data migration fixed: namespace field instead of kind
+- **Repo**: ansible/awx
+- **Commits**: fd847862a7, 01293f1b45
+- **What happened**: Migration `0204_squashed_deletions.py` had a RunPython step that incorrectly used `filter(kind='github_app').update(kind='github_app_lookup')` to rename the GitHub App credential type. The `kind` field is not unique across credential types (e.g., multiple types share `kind='cloud'`), so this could rename the wrong rows. The fix changed the filter/update to use the `namespace` field instead, which is unique. A follow-up commit also added `migrations.RunPython.noop` reverse operations to migrations 0201, 0202, and 0204 to make them reversible.
+- **Insight**: When writing data migrations that update credential type rows, always filter by `namespace` (unique) rather than `kind` (non-unique). The `namespace` field on `main_credentialtype` is the stable identifier for credential type lookups.
+
+### `last_job_host_summary_id` and `last_job_id` on main_host deprecated -- no longer written to
+- **Repo**: ansible/awx
+- **Commits**: d1b3ae53ae (#16332)
+- **What happened**: The `playbook_on_stats` wrapup path previously bulk-updated `last_job_id` and `last_job_host_summary_id` on every host touched by a job. In scale lab testing this query had a median execution time of 75 seconds due to index churn on `main_host` (90:1 dead-to-live tuple ratio). The fix removes all writes to these FK columns. Reads are replaced with: (1) `JobHostSummary.latest_for_host(host_id)` classmethod that queries `main_jobhostsummary WHERE host_id=X ORDER BY id DESC LIMIT 1`, (2) `_annotate_host_latest_summary(qs)` helper for queryset annotations, and (3) `_prefetch_latest_summaries(hosts)` for bulk fetching after pagination. The FK columns remain in the schema (removal requires a future migration) but are now stale/dead. **Our `main_host` collector** does not currently SELECT these columns (it joins `main_host` to `main_unifiedjob` for `last_automation` via `last_job_id`, but uses `main_host.last_job_id` directly from the host row), so this may affect the `last_automation` date accuracy in our collectors if they rely on `main_host.last_job_id`.
+- **Insight**: Denormalized FK columns that are written on every job completion become performance bottlenecks at scale. When AWX deprecates a denormalized column without removing it, our collectors must check whether they read from it and switch to the replacement query pattern before the column is dropped in a future migration.
+
+### Workload identity credentials: `internal` flag added to CredentialType inputs JSON
+- **Repo**: ansible/awx
+- **Commits**: 57f9eb093a (#16286), ff68d6196d (#16348)
+- **What happened**: Workload identity credential support was added, allowing credentials to resolve JWT tokens at runtime via OIDC. A new `internal` boolean attribute was added to the JSON schema for CredentialType `inputs.fields[]` entries -- fields marked `internal: true` are resolved from runtime context (not user-provided). The feature is gated by `FEATURE_OIDC_WORKLOAD_IDENTITY_ENABLED` (defaults to False). No new DB columns were added; the `internal` flag lives inside the existing `inputs` JSONField on `main_credentialtype`. A `context` cached_property was added to the `Credential` model (Python-only, not persisted).
+- **Insight**: No structural schema change to `main_credentialtype`, but the `inputs` JSON content shape has expanded. If our collectors parse the `inputs` JSON field, they should tolerate the new `internal` attribute. The feature flag means OIDC credential types may or may not exist in `main_credentialtype` depending on the deployment.
+
+### CredentialType.description now populated from plugin_description
+- **Repo**: ansible/awx
+- **Commits**: 7c75788b0a (#16364)
+- **What happened**: The `description` column on `main_credentialtype` was previously empty for most managed credential types. The `_setup_tower_managed_defaults()` method now propagates `plugin_description` from credential plugins into `CredentialType.description`, and updates existing records if they lack a description. No schema change -- the `description` column already existed.
+- **Insight**: The `description` column on `main_credentialtype` will now be populated for managed credential types. If our `credentials_service` collector exposes this field, downstream consumers will start seeing richer data.
+
+### Plugin registry DB sync moved from app.ready() to dispatcher startup
+- **Repo**: ansible/awx
+- **Commits**: d5e5ea3670 (#16483)
+- **What happened**: `CredentialType.setup_tower_managed_defaults()` (which syncs managed credential type rows to the database) was moved from Django's `app.ready()` (runs in every process) to the dispatcher's startup task (runs once per deployment). In-memory registries (`ManagedCredentialType.registry`, `InventorySourceOptions.injectors`) are now lazily loaded via a `LazyLoadDict` class. No schema change, but the timing of when `main_credentialtype` rows are synced from plugins to the database has changed.
+- **Insight**: If our collectors run before the dispatcher has started (e.g., during initial deployment), managed credential type rows may not yet exist in `main_credentialtype`. The lazy-load pattern also means web workers no longer perform DB writes at startup, which removes a source of intermittent `RuntimeWarning` and startup contention.
+
+### Instance health check: nodes with zero cpu/memory no longer marked READY
+- **Repo**: ansible/awx
+- **Commits**: f25e436bef (#16511)
+- **What happened**: `Instance.save_health_check_data()` now treats `cpu=0` or `memory=0` as an error condition, preventing the node from transitioning to READY state. Previously, zero values with no errors would allow the node to become READY. No schema change -- the `cpu`, `memory`, `errors`, and `node_state` columns on `main_instance` are unchanged.
+- **Insight**: Our `controller_version_service` collector filters `main_instance` by `enabled=True` and `node_type IN ('control', 'hybrid')`. Nodes with zero cpu/memory will now remain offline (not READY), which could affect the version data we collect if such nodes were previously included. No schema impact, but behavioral change in what data appears in `main_instance`.
+
+### AWX migration 0205: AlterModelOptions for ordering on InstanceGroup and workflow nodes
+- **Repo**: ansible/awx
+- **Commits**: 670dfeed25 (#16298)
+- **What happened**: Migration `0205_add_ordering_to_instancegroup_and_workflow_nodes.py` adds `ordering = ('pk',)` to the Meta class of `InstanceGroup`, `WorkflowJobTemplateNode`, and `WorkflowJobNode`. This is a Django `AlterModelOptions` operation that only affects default queryset ordering -- no columns, indexes, or constraints are created.
+- **Insight**: `AlterModelOptions` migrations do not change the database schema at the PostgreSQL level. They only update Django's internal state. None of these three tables are in our tracked collector dependencies.
+
 ## Superseded / Semi-Obsolete
 
 ### Core app migrations 0004-0010

@@ -283,3 +283,28 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: bugs_and_pitfalls.md
 - **Evolution**: 5432 (original) -> changed to 5433 to avoid local conflicts (#274) -> reverted 15 minutes later because it broke CI (#276)
 - **PRs**: 2 (#274, #276)
+
+### Indirect managed nodes: prototype to feature-gated group
+- **Files**: architecture.md, metrics_collection.md, task_system.md, settings_and_configuration.md
+- **Evolution**: Collector added to METRICS_COLLECTION_GROUP (#274) -> integrated into daily anonymization pipeline (#296) -> extracted into own INDIRECT_NODE_COLLECTION_GROUP with INDIRECT_NODE_COLLECTION feature flag, default off (#301)
+- **PRs**: 3 (#274, #296, #301)
+
+### Events collector: disabled, re-enabled with limits
+- **Files**: metrics_collection.md, settings_and_configuration.md
+- **Evolution**: main_jobevent_service disabled by default (enabled=False) for performance -> re-enabled (enabled=True) with JOBEVENT_ROW_LIMIT=1M (#295) -> row limit reduced to 200K, JOBEVENT_JOB_LIMIT=1K added (#300)
+- **PRs**: 2 (#295, #300)
+
+### Dashboard collection feature flag lifecycle
+- **Files**: settings_and_configuration.md, architecture.md, metrics_service.md
+- **Evolution**: Default-off opt-in with YAML-based AAPFlag seeding (#168, #184) -> five-tier lookup formalized (#189, #191, #199) -> promoted to default-on, YAML seeding machinery deleted (-560 lines) (#275)
+- **PRs**: 5+ (#168, #184, #189, #191, #199, #275)
+
+### CI fork handling: secrets checks
+- **Files**: ci_cd.md, bugs_and_pitfalls.md
+- **Evolution**: No fork handling -> secrets context used directly in if: conditions (#303, broke immediately) -> fixed via job-level env var bridge pattern (#305)
+- **PRs**: 2 (#303, #305)
+
+### Jira PR linking action: rapid iterative fixes
+- **Files**: ci_cd.md
+- **Evolution**: Initial action with BOT_GITHUB_TOKEN + pull_request trigger (#304) -> fix: use github.token instead of BOT_GITHUB_TOKEN (#308) -> fix: pull_request_target + marker-based comment management + trailing whitespace (#309) -> fix: remove backticks from ticket name in comment (#310)
+- **PRs**: 4 (#304, #308, #309, #310)

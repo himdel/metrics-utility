@@ -202,7 +202,17 @@
 - **Commits**: 956923d (#193)
 - See [settings_and_configuration.md](settings_and_configuration.md#production-startup-validation-re-enabled-with-actionable-error-messages) for the full entry. Summary: Dynaconf `validation=True` re-enabled after being disabled in #143. All four production validators uncommented with actionable error messages specifying exact env vars to set. This concluded a 5-PR validation saga (#26 -> #129 -> #137 -> #143 -> #193).
 
+### Compose environments merged: metrics-service containers added behind profiles
+- **Repo**: ansible/metrics-utility
+- **Commits**: 5faa1bb (#433)
+- **What happened**: The metrics-utility Docker Compose file was expanded to include metrics-service containers behind Docker Compose profiles. Key changes: (1) A YAML anchor `x-metrics-service` defines the shared build/volume/env config for service containers, with `&metrics-service-env` for environment inheritance. (2) Five new service containers were added: `metrics-service-init` (profile: `service`), `metrics-service-web` (profile: `service`), `metrics-service-dispatcher` (profile: `service`), `metrics-service-scheduler` (profile: `service`), and `metrics-service-pytest` (profile: `pytest-svc`). (3) The Makefile was significantly simplified: `CONTAINER_ENGINE ?= docker` was replaced by `COMPOSE_CMD ?= $(shell command -v podman-compose 2>/dev/null || echo "docker compose")` for automatic podman/docker detection. Separate `pcompose`/`pclean`/`ppsql` targets were removed. New targets: `compose-pytest`, `compose-env`, `compose-service`, `compose-pytest-svc`. (4) Performance test tools were moved from metrics-service into `tools/{service_perf,dashboard_perf}` with path resolution updated to find `../metrics-service` as a sibling repo. (5) The metrics-utility pytest container replaced `rsync` (not available in mirror.gcr.io/python) with `tar` for file copying, removed unsupported `uid=` from tmpfs, and replaced `sed` patching of mock_awx settings with env vars. (6) Mock server URLs now use env vars (`MOCK_SEGMENT_URL`, `MOCK_PROMETHEUS_URL`) for container networking. (7) Coverage target enhanced with `--cov-branch` and `--cov-report=xml`.
+- **Insight**: Auto-detecting podman-compose vs docker-compose via `command -v` eliminates the need for separate targets per container engine and works transparently for both Docker and Podman users. YAML anchors keep 5+ service definitions DRY while allowing per-container overrides.
+
 ## Superseded / Semi-Obsolete
+
+### Separate Makefile targets for docker vs podman (pcompose, pclean, ppsql)
+- **Repo**: ansible/metrics-utility
+- Superseded by 5faa1bb (#433) which replaced `CONTAINER_ENGINE ?= docker` and separate `pcompose`/`pclean`/`ppsql` targets with auto-detected `COMPOSE_CMD ?= $(shell command -v podman-compose 2>/dev/null || echo "docker compose")`. The unified targets now work with both Docker and Podman without user intervention. **Supersedes** the `CONTAINER_ENGINE` variable from #198.
 
 ### Requirements.txt-based dependency management
 - **Repo**: ansible/metrics-service
@@ -259,3 +269,9 @@
 ### Kubernetes manifests in manifests/
 - **Repo**: ansible/metrics-service
 - Removed in d72f17e (#68). The template-origin k8s manifests were never updated for the actual service and contained stale configuration. AAP operator handles real Kubernetes deployment.
+
+### Standalone docker-compose removed, unified compose adopted
+- **Repo**: ansible/metrics-service
+- **Commits**: ff6e9fb (#266)
+- **What happened**: The standalone `docker-compose.yml` in metrics-service (which never had AWX DB support) was removed. All dev workflows now use the unified compose in `../metrics-utility/` via Makefile targets: `make compose-service` (runs the service), `make compose-pytest-svc` (runs service tests). Performance test tools were moved to metrics-utility's `tools/` directory. The `Dockerfile.dev` was cleaned up significantly: added `.venv/bin` to `PATH` (broken since 531b608 introduced the venv but never updated PATH), set `VIRTUAL_ENV`, made `.venv` writable for `uv sync`, and removed unused `supervisord` and `entrypoint-*.sh` COPYs (compose services now use inline `manage.py` commands). A `.coderabbit.yaml` was added to disable the UBI9 "avoid :latest" lint rule. The Makefile gained `help`, `test`, `coverage`, `lint`, `fix` targets.
+- **Insight**: A unified compose file in the library repo (metrics-utility) that supports both library and service development via profiles eliminates the need for each repo to maintain its own compose file. The service repo only needs Makefile targets that delegate to the shared compose. This ensures consistent database setup (roles, schemas) across both repos. **Extends** the unified compose work in metrics-utility #433.

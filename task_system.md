@@ -360,3 +360,21 @@
 - **Repo**: ansible/metrics-service
 - **Commits**: 33db88a (#273)
 - See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#stale-psycopg3-connections-not-detected-by-djangos-ensure_connection) for the full entry. Summary: `ensure_connection()` doesn't detect dead psycopg3 connections (stale objects are not `None`). A `SELECT 1` probe was added to detect and close dead connections before use.
+
+### AWX database readiness check blocks task scheduling during startup
+- **Repo**: ansible/metrics-service
+- **Commits**: a559e33 (#280)
+- **What happened**: The scheduler's `_periodic_database_sync()` now calls `awx_db_ready()` (probes `information_schema.tables` for `main_unifiedjob`) before scheduling collector tasks. If the AWX DB isn't ready, task scheduling is skipped (not failed) with a WARNING log, escalating to ERROR after a 10-minute grace period. The `_fail_stuck_tasks()` call was moved BEFORE the readiness check so stuck task reconciliation always runs, even during startup. `awx_db_ready()` reuses `get_db_connection()` to inherit the `SELECT 1` reconnect logic.
+- **Insight**: Separating "is the database ready?" from "schedule tasks" prevents cascade failures during deployment. The grace period + escalation pattern (WARNING for first 10 min, then ERROR) balances signal-to-noise: operators aren't alarmed during normal startup, but genuine migration failures are flagged. Stuck task detection should be independent of external DB readiness since it operates on the service's own DB.
+
+### INDIRECT_NODE_COLLECTION_GROUP: separate task group with own feature flag
+- **Repo**: ansible/metrics-service
+- **Commits**: 69abb56 (#301)
+- **What happened**: The indirect managed nodes collector was extracted from `METRICS_COLLECTION_GROUP` into its own `INDIRECT_NODE_COLLECTION_GROUP` with feature flag `INDIRECT_NODE_COLLECTION` (default: False, customer opt-in). The task uses a dedicated `collect_indirect_nodes` function (registered in `_PREVIOUS_HOUR_FUNCTIONS` for hour_timestamp injection). The cron schedule is `30 * * * *` (every hour at XX:30), staggered from other hourly collectors (XX:05, XX:10, XX:15, XX:20, XX:25).
+- **Insight**: Feature-gated task groups allow independent opt-in for resource-intensive or customer-specific collectors without affecting the core metrics pipeline. The cron staggering pattern (each collector at a different minute offset) prevents I/O contention from multiple collectors hitting the AWX DB simultaneously.
+
+### max_attempts restored on daily_anonymize_and_prepare
+- **Repo**: ansible/metrics-service
+- **Commits**: 69abb56 (#301)
+- **What happened**: The `daily_anonymize_and_prepare` task in `ANONYMIZATION_GROUP` regained `"max_attempts": SEGMENT_MAX_ATTEMPTS` (7). This was previously removed in #276 because it was incorrectly applied (the task is local-only, doesn't interact with Segment). However, `daily_anonymize_and_prepare` feeds into `send_to_segment`, and if it fails, the pipeline stalls. The extended retry window ensures transient DB errors during anonymization don't block the Segment delivery chain.
+- **Insight**: Retry budget decisions should consider the downstream pipeline impact, not just the individual task's external dependencies. A DB-only task that gates an external-service task may warrant more retries than a standalone DB-only task.

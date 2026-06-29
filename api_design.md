@@ -133,3 +133,15 @@
 
 ### Settings API (SettingViewSet) at /api/v1/settings/
 - The entire settings API surface (SettingViewSet, SettingSerializer, v1 URLs) was removed in 2be6a60 (#185) for security. Settings are now managed via management commands and environment variables only. The Setting model and utils remain for internal use.
+
+### Custom date range filter for dashboard reports
+- **Repo**: ansible/metrics-service
+- **Commits**: 56d0119 (#272)
+- **What happened**: The dashboard report endpoints gained custom date range filtering via `start_date` and `end_date` query parameters (ISO 8601 format, e.g., `?start_date=2026-01-01&end_date=2026-06-15`). The `CustomReportFilter` validates that: start_date <= end_date, the range doesn't exceed 366 days, dates are not in the future, and both parameters are present together (providing only one raises `ValidationError`). The `DateFilter` was updated with a `validate_custom_period_dates()` helper. The `collection_status` endpoint now also accepts the custom range to report the date range for which data exists. The OpenAPI schema was updated with the new query parameters.
+- **Insight**: Date range filters should validate both boundary constraints (start <= end, max span, not-in-future) and completeness constraints (both params required together). The 366-day maximum prevents accidentally expensive queries. Exposing the custom range on the collection_status endpoint lets the UI show whether data exists for the requested period.
+
+### Label IDs injected via post-fetch batch query to avoid aggregate inflation
+- **Repo**: ansible/metrics-service
+- **Commits**: d73d931 (#306)
+- **What happened**: The dashboard report list response needed to include `label_ids` (AWX label IDs per template row). The naive approach of annotating the `ValuesQuerySet` with a label JOIN would inflate aggregates (runs, elapsed, cost) because each job has multiple labels, causing each job row to be duplicated per label in the GROUP BY. Instead, `_inject_label_ids()` runs a single batched `JobLabel` query after pagination, keyed by `template_metadata_id`, and mutates each row dict in place. The query is scoped to the same filtered `base_qs` used for the report (respecting date range, org, project, and label filters) and excludes null `label_id` values. The method was initially a static method but became an instance method accepting `base_qs` after a review finding that scoping to the template set alone would include labels from jobs outside the current filter window.
+- **Insight**: When adding list-valued fields to aggregated API responses, avoid JOIN-based annotation (which inflates GROUP BY aggregates). Instead, run a separate post-pagination batch query and inject the results. This pattern preserves correct aggregate values while keeping the response efficient (one extra query per page, not per row).

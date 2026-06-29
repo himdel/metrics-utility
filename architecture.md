@@ -629,6 +629,24 @@
 - **What happened**: The `apps/dashboard/` Django app was entirely deleted in #253: the monolithic `dashboard.html` template (~1337 lines of inline HTML/CSS/JS), the `DashboardConfig` app class, URL routing (`apps/dashboard/urls.py`), the `require_development_mode` view decorator, all dashboard tests, and all settings references (INSTALLED_APPS, TEMPLATES DIRS, pyproject.toml package-data). The dashboard had been part of the service since c6947ce (#14) and enhanced through edb4626 (#25) to ~1400 lines. Two days later, #254 added a replacement: a standalone `tools/tasks/dashboard.html` file (1042 lines) that runs entirely outside Django -- it opens via `file://` or any static server, connects to the local API using Basic auth (via a login form), and communicates via fetch calls with `Authorization: Basic ...` headers. To support cross-origin access from the standalone dashboard, an inline `_DevCorsMiddleware` was added to `apps/settings/development.py` that handles OPTIONS preflight and adds CORS headers when an Origin header is present. The middleware is injected at position 0 via Dynaconf's `@insert 0` marker. The `dev.sh` script gained a `--init` flag that runs `migrate` and creates an `admin/admin` superuser for quick dashboard setup.
 - **Insight**: The architectural shift from an embedded Django app to a standalone HTML file reflects a separation of concerns: the production UI now lives in an external dashboard repo, while the dev-only monitoring tool has zero Django dependency and requires no build system or deployment configuration. Using Basic auth instead of session auth makes the standalone tool stateless and cross-origin compatible. The inline CORS middleware (dev-only, no pip dependency) is the simplest possible implementation -- it trusts any Origin header, which is acceptable because it's gated by the `development` settings file.
 
+### Indirect managed nodes: three-PR arc from prototype to feature-gated group
+- **Repo**: ansible/metrics-service
+- **Commits**: 64e50c6 (#274), 8d85e6f (#296), 69abb56 (#301)
+- **What happened**: The indirect managed nodes collection pipeline was built in three stages: (1) #274 added the `indirect_managed_nodes` collector entry to `_get_hourly_collectors()` using `main_indirectmanagednodeaudit` from metrics-utility and `IndirectManagedNodesAnonymizedRollup`, scheduled within `METRICS_COLLECTION_GROUP`. (2) #296 integrated the collector into the daily anonymization pipeline, adding the rollup processor and passing data to `anonymize_rollups()`. The rollup's `prepare()` returns a deduplicated `{indirect_node_ids, indirect_nodes_total}` dict. (3) #301 extracted the collector into its own `INDIRECT_NODE_COLLECTION_GROUP` task group with a dedicated `INDIRECT_NODE_COLLECTION` feature flag (default False, customer opt-in) and a `collect_indirect_nodes` function. The cron scheduler's `_PREVIOUS_HOUR_FUNCTIONS` set was generalized to cover both `collect_hourly_metrics` and `collect_indirect_nodes`.
+- **Insight**: The three-stage arc shows a deliberate pattern: first prove the collector works within the existing infrastructure, then integrate into the full pipeline, then extract into an independently controllable unit. This minimizes risk at each stage while building toward full operational independence.
+
+### Dashboard telemetry model and pipeline self-observability endpoint
+- **Repo**: ansible/metrics-service
+- **Commits**: 5e0bd10 (#269)
+- **What happened**: A `DashboardTelemetry` model was added to capture per-run performance data: `task_name`, `collection_run_date`, `success`, `collection_duration_ms`, `rows_collected`, `sync_duration_ms`, `rows_synced`. Collection tasks call `DashboardTelemetry.record()` at completion. A new `GET /api/v1/dashboard_reports/collection_telemetry/` endpoint (admin-only, last 30 days) exposes this data. The telemetry is also forwarded to the anonymized Segment payload. A new hourly task `dashboard_sync_telemetry` (in `DASHBOARD_COLLECTION_GROUP`) computes telemetry from `HourlyMetricsCollection` records for the daily rollup.
+- **Insight**: Pipeline self-observability requires its own data model, separate from task execution logs, because the metrics being tracked (rows collected, sync duration, collection duration) are domain-specific, not generic task metadata. Exposing telemetry via a REST endpoint enables both internal monitoring and external dashboard integration.
+
+### Post-collect hook pattern extended to JobHostSummary sync
+- **Repo**: ansible/metrics-service
+- **Commits**: af738df (#285)
+- **What happened**: The `post_collect_hook_factory` pattern (first used in PR #210 for `unified_jobs` -> `sync_dashboard_job_records`) was extended to `job_host_summary_service` for incremental `JobHostSummary` sync. The hook factory returns a closure that captures the `since` timestamp and, after collection, groups the raw DataFrame's host summary rows by `job_remote_id`, serializes them (coercing numpy types), chunks at 2000 records (keeping all records per job together), and schedules `sync_dashboard_host_summaries` Tasks. The chunking is record-count based (not job-count) because a single job can have thousands of host summaries. Stale chunk cleanup runs after `update_or_create` to prevent outdated payloads from prior runs.
+- **Insight**: The `post_collect_hook_factory` pattern enables zero-additional-DB-cost data reuse: the hook piggybacks on the collector's raw DataFrame without issuing new queries. When chunking, the unit of atomicity matters: record-count chunks keep all records for a single job together (required for correct stale-record deletion), while job-count chunks give unpredictable payload sizes.
+
 ## Superseded / Semi-Obsolete
 
 ### Animal model and related API endpoints
@@ -706,3 +724,11 @@
 ### Embedded apps/dashboard/ Django app for task monitoring
 - **Repo**: ansible/metrics-service
 - The `apps/dashboard/` app (monolithic HTML template with inline JS/CSS, session-based auth, Django view with `require_development_mode` decorator) was deleted in be9e010 (#253). The production UI is now provided by an external dashboard repo. A standalone `tools/tasks/dashboard.html` file was added in 6316a02 (#254) as a dev-only replacement using Basic auth and no Django dependency.
+
+### feature_flags.yaml and YAML-based AAPFlag seeding
+- **Repo**: ansible/metrics-service
+- The `apps/tasks/feature_flags.yaml` file, `load_task_feature_flags()` function (with `post_migrate` signal), and `sync_flag_values_from_settings()` were deleted in 13ad18b (#275). The YAML seeding approach was over-engineered once `DASHBOARD_COLLECTION` became default-on. Feature flags are now managed via the simpler `FEATURE` dict in `defaults.py` with Dynaconf env var overrides. **Supersedes** the YAML-based approach from #184 and the post_migrate seeding from #168.
+
+### Standalone docker-compose.yml in metrics-service
+- **Repo**: ansible/metrics-service
+- Removed in ff6e9fb (#266). The standalone compose file never had AWX DB support and was incomplete. All dev workflows now use the unified compose in `../metrics-utility/` via Makefile targets (`make compose-service`, `make compose-pytest-svc`).

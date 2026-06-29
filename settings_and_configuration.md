@@ -535,6 +535,12 @@
 - **Repo**: ansible/metrics-service
 - The middleware originally derived the service name from `settings.ROOT_URLCONF` only. In 35620f8 (#157), it was updated to use `settings.URL_PREFIX` when set, with ROOT_URLCONF as fallback.
 
+### METRICS_UTILITY_CANDLEPIN_ENABLED master flag disables all Candlepin functionality by default
+- **Repo**: ansible/metrics-utility
+- **Commits**: ef734f3 (#460)
+- **What happened**: A new `METRICS_UTILITY_CANDLEPIN_ENABLED` master flag was added (default: `False`) that controls all Candlepin-related functionality. When disabled, `handle_crc_ship_target()` returns early with only billing provider params, skipping cert loading from AWX DB, cert loading from local filesystem, consumer registration, and cert lifecycle (check-in and renewal). Additionally, the two sub-flags were also changed to default to `False` for consistency: `METRICS_UTILITY_CANDLEPIN_REGISTRATION_ENABLED` (was `True`) and `METRICS_UTILITY_CANDLEPIN_LIFECYCLE_ENABLED` (was `True`). To enable full Candlepin functionality, operators must now explicitly set all three flags. The check is early in the function (before any Candlepin imports or operations), so disabled mode has minimal overhead. All Candlepin test classes were updated to set `METRICS_UTILITY_CANDLEPIN_ENABLED=true` in their autouse fixtures.
+- **Insight**: When a complex subsystem has multiple feature flags, a single master flag that short-circuits the entire code path is simpler for operators than understanding the interactions between sub-flags -- especially when the subsystem should be opt-in (not opt-out). Changing all related flag defaults to match the master flag's default prevents the confusing scenario where the master is `False` but sub-flags default to `True`. **Supersedes** the default=True behavior for `CANDLEPIN_REGISTRATION_ENABLED` and `CANDLEPIN_LIFECYCLE_ENABLED` from #363.
+
 ### Framework alignment: project settings moved from protected files to apps/settings layer
 - **Repo**: ansible/metrics-service
 - **Commits**: 6c01004 (#267)
@@ -546,3 +552,21 @@
 - **Commits**: 6c01004 (#267)
 - **What happened**: The initial implementation of the Segment key post-hook called `dynaconf_instance.set()` directly inside the hook. This is incorrect -- Dynaconf `@post_hook` functions must return a dict with the keys/values to set. The hook was fixed to `return {"SEGMENT_WRITE_KEY": key}` (or `return {}` when no change needed). Similarly, the ALLOWED_HOSTS parsing, which previously called `DYNACONF.set("ALLOWED_HOSTS", allowed_hosts)` inline in `settings.py`, was converted to a post-hook returning `{"ALLOWED_HOSTS": allowed_hosts}`.
 - **Insight**: Dynaconf `@post_hook` functions must return a dict of values to set, not call `.set()` directly. This is a subtle API distinction that can cause silent failures if done wrong.
+
+### DASHBOARD_COLLECTION feature flag promoted from opt-in to default-on
+- **Repo**: ansible/metrics-service
+- **Commits**: 13ad18b (#275)
+- **What happened**: The `DASHBOARD_COLLECTION` feature flag was changed from default-off (opt-in) to default-on. Previously, `DASHBOARD_COLLECTION` was intentionally omitted from the `FEATURE` dict in `defaults.py` so it defaulted to `False` in `get_feature_enabled_from_db`. Now it's added to the dict as `"DASHBOARD_COLLECTION": True`. The `feature_flags.yaml` file (29 lines) and the entire `load_task_feature_flags` / `sync_flag_values_from_settings` machinery in `apps/tasks/apps.py` (135 lines) were deleted -- the feature flag YAML seeding approach was replaced by the simpler `FEATURE` dict + env var override pattern. The `metrics_service` management command's `--skip-feature-flag-init` argument was also removed. Opt-out is still possible via `METRICS_SERVICE_FEATURE__DASHBOARD_COLLECTION=false` env var, installer top-level attribute, or Gateway UI toggle.
+- **Insight**: When a feature flag transitions from opt-in to default-on, simplify the flag management machinery. The YAML-based `AAPFlag` seeding approach (with `post_migrate` signal, `sync_flag_values_from_settings`, etc.) was over-engineered for a flag that's now just a boolean in a dict. The `FEATURE` dict + Dynaconf env var override provides the same 5-tier precedence without the complexity. **Supersedes** the feature_flags.yaml approach from #184 and the post_migrate seeding from #168.
+
+### Event collector resource limits as Dynaconf settings
+- **Repo**: ansible/metrics-service
+- **Commits**: 8daf1af (#295), 7b16727 (#300)
+- **What happened**: Two new settings were added to `defaults.py` for controlling event collection resource usage: `JOBEVENT_ROW_LIMIT` (max event rows per hourly run, default 200K, ~140-180MB) and `JOBEVENT_JOB_LIMIT` (max jobs processed per window, default 1K). Both are overridable via `METRICS_SERVICE_JOBEVENT_ROW_LIMIT` / `METRICS_SERVICE_JOBEVENT_JOB_LIMIT` env vars (standard Dynaconf naming). The initial row limit was 1M but was reduced to 200K in a follow-up PR based on memory profiling.
+- **Insight**: For resource-bounded settings, start conservative and document the memory implications in comments (e.g., "at ~700-900 bytes/row, 200K rows is ~140-180 MB"). Having two independent limit dimensions (rows and jobs) gives operators fine-grained control without modifying code.
+
+### Platform auditor RBAC bypass via ANSIBLE_BASE_BYPASS_ACTION_FLAGS
+- **Repo**: ansible/metrics-service
+- **Commits**: c99bfe5 (#302)
+- **What happened**: System auditor users were getting 401 on `GET /api/v1/dashboard_reports/collection_status/` because DAB's `has_super_permission(user, 'view')` returned `False` for them. The gateway conveys auditor status via JWT `global_roles` (not `user_data`), so no user flag was set and the bypass-action-flag check found nothing. The fix: (1) Added `User.is_platform_auditor` property that queries RBAC assignments for the "Platform Auditor" `RoleDefinition` (no migration needed, role is already synced from JWT claims by `save_user_claims`). (2) Set `ANSIBLE_BASE_BYPASS_ACTION_FLAGS = {"view": "is_platform_auditor"}` in `defaults.py` (mirroring `aap_gateway_api/defaults.py`). (3) Updated `test.py` to use the same setting. Superusers bypass via `ANSIBLE_BASE_BYPASS_SUPERUSER_FLAGS` before the action-flag check fires.
+- **Insight**: DAB's `IsSystemAdminOrAuditor` permission class uses `has_super_permission()` which checks `ANSIBLE_BASE_BYPASS_ACTION_FLAGS` for action-specific bypasses. Each AAP service must configure this setting identically to the gateway (e.g., `{"view": "is_platform_auditor"}`) for auditor access to work correctly. The property-based approach (`User.is_platform_auditor`) avoids adding a migration while still being compatible with `getattr(user, flag_name)` lookup in DAB.

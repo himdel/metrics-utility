@@ -293,6 +293,24 @@
 - **What happened**: All GitHub Actions references across 6 workflow files were changed from tag-based versions (e.g., `actions/checkout@v6`) to commit SHA pins with version comments (e.g., `actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6`). This covers `actions/checkout`, `astral-sh/setup-uv`, `actions/setup-python`, `actions/setup-go`, `actions/upload-artifact`, `actions/download-artifact`, `SonarSource/sonarqube-scan-action`, `codecov/codecov-action`, `actions/github-script`, and `snyk/actions/setup`. Dependabot will continue proposing updates in the same SHA+comment format.
 - **Insight**: Pinning GitHub Actions to commit SHAs prevents supply chain attacks where a tag is moved to point to malicious code -- the version comment preserves human readability while the SHA ensures immutability. Dependabot understands this format and proposes updates with both the new SHA and version comment.
 
+### PR target branch validation added for metrics-utility
+- **Repo**: ansible/metrics-utility
+- **Commits**: ba7ad32 (#458)
+- **What happened**: A "Check PR target" step was added to `pr-checks.yml` that validates the PR's base branch before running any other checks. On upstream (`ansible/metrics-utility`), PRs must target `devel`; forks may target `stable-*` branches. This mirrors the pattern from `ansible/metrics-service` (#249) but uses `stable-*` (no `2.` prefix) to match metrics-utility's branch naming convention. The check uses shell conditionals with `[[ "$BASE_BRANCH" == stable-* ]]` for glob matching.
+- **Insight**: Target branch validation patterns must be adapted per repo -- metrics-utility uses `stable-*` branches while metrics-service uses `stable-2.*` branches, so the glob pattern differs even though the CI logic is structurally identical.
+
+### Jira ticket tagging GitHub Action auto-links PRs to Jira issues
+- **Repo**: ansible/metrics-utility
+- **Commits**: b73d38a (#462)
+- **What happened**: A `jira-pr-link.yml` workflow was added that runs on `pull_request_target` (opened, edited, reopened). It searches for `AAP-\d+` ticket numbers in three places in order: (1) PR title, (2) PR body, (3) commit messages (via `gh pr view --json commits`). When found, it updates the Jira ticket's custom field `customfield_10875` (Git Pull Request) with the PR URL via the Jira REST API (`PUT /rest/api/2/issue/{ticket}`). The workflow posts a comment on the PR with idempotent marker (`<!-- jira-pr-link-bot -->`) -- either confirming the link or warning about a missing ticket. Comments are updated (not duplicated) on subsequent PR edits via the marker-based comment lookup pattern. Uses `JIRA_BASE_URL` (vars), `BOT_JIRA_EMAIL` and `BOT_JIRA_API_TOKEN` (secrets). All API failures emit `::warning::` instead of failing the workflow.
+- **Insight**: Auto-linking PRs to Jira via a custom field update (rather than just commenting) creates bidirectional traceability -- the Jira ticket shows the PR link without manual effort. Using `::warning::` instead of `exit 1` for API failures ensures the workflow degrades gracefully when Jira credentials aren't configured (e.g., on forks).
+
+### SonarCloud scan action bumped from 7.2.1 to 8.2.0
+- **Repo**: ansible/metrics-utility
+- **Commits**: 6a34a05 (#393)
+- **What happened**: Dependabot bumped `SonarSource/sonarqube-scan-action` from 7.2.1 to 8.2.0 across both `pytest.yml` and `sonar_checks.yml`. This is a major version bump (7 to 8).
+- **Insight**: SonarCloud action major version bumps are generally transparent for projects that don't use advanced scanner configuration -- the action's interface (env vars, inputs) has remained stable across major versions.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)
@@ -330,3 +348,21 @@
 - **Commits**: 6c01004 (#267)
 - **What happened**: A `framework-validation.yml` workflow was re-added (previously added in #84 and removed in #88 for being too strict). The new version uses the PSF's own validate command (`uvx --refresh git+https://github.com/${ORG}/platform-service-framework@${BRANCH} validate`) instead of a custom template-comparison approach. It runs on PRs and pushes to devel/main/stable/release branches, dynamically determining the org and branch from the PR context.
 - **Insight**: Framework validation is back, but now uses the framework's own validation tool rather than a rigid file-comparison approach. This is more maintainable because the framework team controls what passes validation.
+
+### GitHub Actions SHA pinning with version comments
+- **Repo**: ansible/metrics-service
+- **Commits**: 9e5f887 (#283), 958edf8 (#287)
+- **What happened**: All GitHub Actions `uses:` references in project-owned workflows (pr-checks, pytest, sonar_checks, sync-openapi-specs) were changed from tag references (e.g., `actions/checkout@v6`) to commit SHA references with version comments (e.g., `actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0`). Framework-managed workflows (framework-*.yml) were left unchanged since they're validated by the PSF and pinning there causes validation conflicts. Dependabot continues to propose updates in the same SHA+comment format.
+- **Insight**: SHA pinning prevents supply-chain attacks where a malicious actor could re-tag a GitHub Action to inject code. The `# vX.Y.Z` comment preserves human readability. Framework-managed workflow files must NOT be modified with SHA pins since they need to match the PSF template exactly -- pin only project-owned workflows.
+
+### Fork PRs: skip SonarCloud/Codecov when secrets are missing
+- **Repo**: ansible/metrics-service
+- **Commits**: b583841 (#303), 395916f (#305)
+- **What happened**: Fork PRs in public repos don't have access to org secrets (`CICD_ORG_SONAR_TOKEN_CICD_BOT`, `CODECOV_TOKEN`). Previously, SonarCloud and Codecov steps would fail silently or with confusing errors on fork PRs. The fix uses job-level env vars (`HAS_SONAR_TOKEN: ${{ secrets.CICD_ORG_SONAR_TOKEN_CICD_BOT != '' }}`) to detect secret availability, then skips affected steps with `if: env.HAS_SONAR_TOKEN == 'true'`. The sonar_checks workflow also adds the token check at the scan step level. This makes fork PRs work cleanly -- tests run, but code quality reporting is skipped.
+- **Insight**: For open-source repos that accept fork PRs, every workflow step that uses org secrets must have a guard. The `secrets` -> `env` -> `if` bridge pattern is the canonical GitHub Actions approach. Apply it to: artifact uploads (coverage reports), external service integrations (SonarCloud, Codecov), and any step using bot tokens.
+
+### Jira PR linking GitHub Action with iterative fixes
+- **Repo**: ansible/metrics-service
+- **Commits**: 8fa4253 (#304), dc017f0 (#308), 5120327 (#309), 45ee4c5 (#310)
+- **What happened**: A `jira-pr-link.yml` workflow was added to automatically extract Jira ticket numbers (AAP-NNNNN) from PR titles, descriptions, and commit messages, then update the Jira issue's "Git Pull Request" custom field (`customfield_10875`) via the Jira REST API. Four rapid-fire follow-up PRs fixed issues: #308 replaced `secrets.BOT_GITHUB_TOKEN` with `github.token` for `gh` CLI calls (commit checking and PR commenting don't need a bot PAT); #309 switched from `pull_request` to `pull_request_target` trigger (allows writing comments on fork PRs), replaced `gh pr comment --edit-last` with explicit marker-based comment management (`<!-- jira-pr-link-bot -->` prefix + API-based find-and-update), and fixed a trailing whitespace in a shell heredoc; #310 removed backticks from the Jira ticket name in the success comment.
+- **Insight**: (1) Use `pull_request_target` (not `pull_request`) for workflows that need write access to fork PRs -- `pull_request` events from forks run with read-only permissions. (2) For idempotent bot comments, use an HTML comment marker (`<!-- bot-name -->`) at the start of the comment body, then find existing comments by that marker via the API and update them rather than posting duplicates. (3) `github.token` is sufficient for reading PR commit data and posting comments -- don't use a bot PAT unless you need cross-repo or elevated permissions. (4) Jira REST API for custom fields uses `PUT /rest/api/2/issue/{key}` with `{"fields": {"customfield_XXXXX": "value"}}`.
