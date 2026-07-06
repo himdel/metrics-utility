@@ -285,9 +285,9 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **PRs**: 2 (#274, #276)
 
 ### Indirect managed nodes: prototype to feature-gated group to collection-grouped daily
-- **Files**: architecture.md, metrics_collection.md, task_system.md, settings_and_configuration.md, metrics_utility.md
-- **Evolution**: Collector added to METRICS_COLLECTION_GROUP (#274) -> integrated into daily anonymization pipeline (#296) -> extracted into own INDIRECT_NODE_COLLECTION_GROUP with INDIRECT_NODE_COLLECTION feature flag, default off (#301) -> m-u rollup added with host_remote_id dedup (#446, #453, #457) -> briefly converted to snapshot/until_slicing (m-u #464) -> converted to daily slicing by job.finished with collection grouping, version bumped to 2.0 (m-u #475). The rollup now groups by (org, collection_name) using events JSON parsing, and base() strips PII by removing host_names and org_name.
-- **PRs**: 8+ (m-s #274, #296, #301; m-u #446, #453, #457, #464, #475)
+- **Files**: architecture.md, metrics_collection.md, task_system.md, settings_and_configuration.md, metrics_utility.md, bugs_and_pitfalls.md
+- **Evolution**: Collector added to METRICS_COLLECTION_GROUP (#274) -> integrated into daily anonymization pipeline (#296) -> extracted into own INDIRECT_NODE_COLLECTION_GROUP with INDIRECT_NODE_COLLECTION feature flag, default off (#301) -> fix: task function was never registered, silently never ran (#315) -> m-u rollup added with host_remote_id dedup (#446, #453, #457) -> moved hourly->snapshot on service side (#331) -> briefly converted to snapshot/until_slicing on library side (m-u #464) -> converted to daily slicing by job.finished with collection grouping, version bumped to 2.0 (m-u #475) -> moved snapshot->daily on service side with per-collector DB routing (#332). The rollup now groups by (org, collection_name) using events JSON parsing, and base() strips PII by removing host_names and org_name.
+- **PRs**: 11+ (m-s #274, #296, #301, #315, #331, #332; m-u #446, #453, #457, #464, #475)
 
 ### Events collector: disabled, re-enabled with limits
 - **Files**: metrics_collection.md, settings_and_configuration.md

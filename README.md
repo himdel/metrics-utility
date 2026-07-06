@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | ef734f3 | 2026-06-25 | Disable Candlepin functionality by default (#460) |
-| metrics-service | 45ee4c5 | 2026-06-25 | [AAP-80363] fix: remove "`" from jira ticket in comment (#310) |
+| metrics-utility | a5acc07 | 2026-07-06 | feat(indirect-nodes): convert collector to daily slicing with collection grouping (#475) |
+| metrics-service | 0946897 | 2026-07-06 | feat(indirect-nodes): move collector from snapshot to daily pipeline with DB routing (#332) |
 | awx | 8ab5deb54a | 2026-06-25 | FIX: Refactor formatted raw SQL in unified_jobs result_stdout_raw_handle (#16522) |
 
 ## About the "Superseded / Semi-Obsolete" sections

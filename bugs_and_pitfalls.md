@@ -670,6 +670,18 @@
 - **What happened**: On fresh installs, metrics-service collectors failed with ERROR-level stack traces because the AWX controller database tables (e.g., `main_unifiedjob`) didn't exist yet -- controller migrations were still running. The fix adds an `awx_db_ready()` check that probes `information_schema.tables` for known AWX tables before scheduling collector tasks. The scheduler's `_periodic_database_sync()` now calls this check and skips task scheduling if the DB isn't ready, logging WARNING during a 10-minute grace period and escalating to ERROR after (indicating controller migrations likely failed rather than just being slow). Stuck task detection (`_fail_stuck_tasks`) was moved BEFORE the readiness check so it always runs, even during startup.
 - **Insight**: In multi-service deployments where services share databases, assume migration order is not guaranteed. Rather than failing immediately and losing the current collection window, poll for table existence with a grace period. The grace period + escalation pattern avoids both false-positive alerts (during normal startup) and silent suppression of genuine failures (broken migrations).
 
+### Indirect nodes task silently never ran: unregistered function name in TASK_FUNCTIONS
+- **Repo**: ansible/metrics-service
+- **Commits**: f73fd16 (#315)
+- **What happened**: The `INDIRECT_NODE_COLLECTION_GROUP` task was configured with `"function": "collect_indirect_nodes"`, but this function was never registered in `TASK_FUNCTIONS`. The cron scheduler dispatches tasks by looking up the function name in that registry, so `hourly_collect_indirect_nodes` would fail at execution time. The fix changed the function to `"collect_hourly_metrics"` with `"args": {"collector_type": "indirect_managed_nodes"}`, reusing the existing generic collector. Also removed `"collect_indirect_nodes"` from `_PREVIOUS_HOUR_FUNCTIONS`.
+- **Insight**: When adding a new task group, always verify the `"function"` value exists in the `TASK_FUNCTIONS` registry. This failure was silent -- the task appeared correctly configured in the DB but silently failed when the scheduler tried to dispatch it.
+
+### NaN string fields produce invalid JSON in dashboard serializer
+- **Repo**: ansible/metrics-service
+- **Commits**: aca0683 (#314)
+- **What happened**: `_serialize_dashboard_record` guarded `_INT_FIELDS` and datetime fields against pandas NaN but not string columns. Nullable string columns (`organization_name`, `project_name`, `launched_by_username`, `label_ids`) arrived as `float('nan')` when the entire column was null. `DjangoJSONEncoder` serialised them as the token `NaN` (invalid JSON), causing `Task.task_data` writes to silently produce corrupt data and the `post_collect_hook` to fail -- no `sync_dashboard_job_records` tasks were created for those hours.
+- **Insight**: Pandas coerces any column with mixed nulls to float64. Every field type (int, string, datetime, float) needs explicit NaN-to-None coercion before JSON serialisation. Missing one type causes silent data loss in downstream pipeline stages.
+
 ### Silent label deletion when label_ids column absent from collected data
 - **Repo**: ansible/metrics-service
 - **Commits**: d73d931 (#306)
