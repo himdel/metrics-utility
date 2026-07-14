@@ -687,3 +687,27 @@
 - **Commits**: d73d931 (#306)
 - **What happened**: `sync_dashboard_job_records` used `row.get("label_ids")` which returned `None` when the key was absent (older metrics_utility versions without label support). This `None` was treated as "job has no labels", causing `_sync_labels` to delete all existing `JobLabel` records. The fix distinguishes between key-absent (`labels=None`, skip sync, preserve existing records) and key-present-but-null (`labels=[]`, clear stale records). This mirrors the existing `host_summaries=None` guard pattern already used in `create_or_update_from_awx`.
 - **Insight**: When processing data from upstream sources that evolve their schema, distinguish between "column not present" (preserve existing data) and "column present with null/empty value" (data genuinely empty). Using `dict.get(key)` collapses both cases into `None`. Instead, check `key not in dict` for absence vs `dict[key] is None` for explicit null.
+
+### DYNACONF._post_hooks AttributeError depending on dynaconf version
+- **Repo**: ansible/metrics-service
+- **Commits**: 266e199 (#343)
+- **What happened**: The framework-managed `metrics_service/settings.py` accessed `DYNACONF._post_hooks` directly in a list comprehension that filters and executes post-hooks. Some dynaconf versions don't set the `_post_hooks` attribute on the instance, causing an `AttributeError` at startup. Fixed by changing to `getattr(DYNACONF, "_post_hooks", [])`.
+- **Insight**: When accessing internal/private attributes on third-party objects (prefixed with `_`), always use `getattr()` with a default -- internal APIs can change between versions without notice. This is especially important in framework-managed files that must work across multiple dynaconf versions.
+
+### TASK_METADATA example placed under wrong collector group
+- **Repo**: ansible/metrics-service
+- **Commits**: 2b3457f (#335)
+- **What happened**: The `indirect_managed_nodes` collector is registered in `_get_daily_collectors()`, but its TASK_METADATA example entry was placed under `collect_hourly_metrics`. The example showed incorrect usage for users or tools referencing the metadata to build API calls. Moved to `collect_daily_metrics` metadata where it belongs.
+- **Insight**: TASK_METADATA examples serve as documentation and as inputs for API tooling -- placing an example under the wrong task function is misleading even though it doesn't affect runtime behavior. When moving a collector between pipeline groups, update metadata examples too.
+
+### macOS bash 3.2 incompatible with `wait -n`
+- **Repo**: ansible/metrics-service
+- **Commits**: 4e00776 (#317)
+- **What happened**: `tools/dev.sh` used `wait -n` (wait for any one child process to exit) to detect when any of the three dev services (runserver, dispatcherd, scheduler) crashed. `wait -n` requires bash 4.3+, but macOS ships with bash 3.2 due to GPL v3 licensing. The script crashed with "invalid option" immediately after starting all services. Fixed with a `BASH_VERSINFO` version check that falls back to a `kill -0` polling loop on older bash versions.
+- **Insight**: Dev scripts that target both Linux and macOS must avoid bash 4.x features (`wait -n`, associative arrays, `|&` pipe-stderr, `${var,,}` case modification) or detect the version and fall back. macOS bash is permanently stuck at 3.2 unless users install a newer one via Homebrew.
+
+### Renovate requires wildcard minutes in cron schedules
+- **Repo**: ansible/metrics-service
+- **Commits**: 425138c (#341)
+- **What happened**: PR #281 previously fixed a Renovate cron schedule that had `"* */12 * * 1-5"` (wildcard minute = runs every minute) by changing it to `"0 */12 * * 1-5"`. But Renovate doesn't support minute granularity at all -- it requires `*` for the minutes field. The fix broke the config entirely, causing Renovate to reject the schedule. Reverted to `"* */12 * * 1-5"` with a comment explaining why, and the PR check was flipped to enforce wildcard minutes (the opposite of what #281 enforced).
+- **Insight**: Renovate's cron format is not standard cron -- it ignores the minutes field and requires `*` there. The same "wildcard minutes = runs every minute" logic that's correct for system cron is wrong for Renovate. Always check a tool's cron documentation before applying general cron best practices.

@@ -306,6 +306,10 @@
 ### String-based task submission in UnifiedTaskScheduler
 - `submit_task(f"apps.tasks.tasks.{function_name}", ...)` was changed to `submit_task(TASK_FUNCTIONS[function_name], ...)` in 3de90fc (#153). Then the entire direct-submit approach was replaced in 520fd11 (#155) by routing through `_execute_database_task()`.
 
+### Celery .gitignore entries (celerybeat-schedule, celerybeat.pid)
+- **Repo**: ansible/metrics-service
+- Removed in 75c71b1 (#346). The last remaining Celery references in the codebase -- four lines in `.gitignore` for `celerybeat-schedule` and `celerybeat.pid`. Celery was never used in metrics-service (the project started with a custom scheduler and later adopted dispatcherd), so these were leftover from the initial project template.
+
 ### Feature flag checked from APScheduler args at execution time
 - Feature flags were originally passed as `_feature_flag` in the APScheduler job args and checked in `_execute_scheduled_task`. In 520fd11 (#155), this was changed to re-read `_feature_flag` from the DB task's `task_data`, making changes take effect without scheduler restart. Then in ccf9494 (#167), the entire APScheduler registration path was removed -- all tasks now go through `_periodic_database_sync`, eliminating this concern entirely.
 

@@ -331,11 +331,11 @@
 - **Repo**: ansible/metrics-service
 - The `commits/{sha}/pulls` approach from 8ba3c14 (#101) was replaced in c4add8a (#134) with direct branch/SHA/repo matching. The old API was unreliable due to GitHub's eventual consistency -- recently pushed commits sometimes returned empty PR lists, causing false validation failures.
 
-### Renovate cron wildcard-minute prevention PR check
+### Renovate cron wildcard-minute prevention PR check (reverted)
 - **Repo**: ansible/metrics-service
-- **Commits**: 7e78597 (#281)
-- **What happened**: The Renovate config's Tekton schedule had `"* */12 * * 1-5"` -- wildcard minute meant "every minute during matching hours" (60 PRs per window). Fixed to `"0 */12 * * 1-5"`. A new PR check step was added to `pr-checks.yml` that greps for `"schedule".*"\* ` in `renovate.json` and fails with an error annotation if found: "Cron schedules in renovate.json must not use * for minutes (runs every minute). Use a specific minute like 0."
-- **Insight**: Cron wildcard-minute is an easy mistake in Renovate/Dependabot schedule configs where the intent is "once per interval" but `*` means "every minute". A CI check prevents this from recurring.
+- **Commits**: 7e78597 (#281), reverted by 425138c (#341)
+- **What happened**: The Renovate config's Tekton schedule had `"* */12 * * 1-5"` -- wildcard minute was treated as "every minute during matching hours" by standard cron rules. PR #281 fixed to `"0 */12 * * 1-5"` and added a PR check to prevent wildcard minutes. However, Renovate's cron format is non-standard: it requires `*` for the minutes field and doesn't support minute granularity. The specific-minute fix broke the config entirely, causing Renovate to reject the schedule. PR #341 reverted the schedule to `"* */12 * * 1-5"` and flipped the PR check to enforce wildcard minutes instead (the opposite direction). **Lesson**: Renovate cron != system cron; always check the tool's own cron documentation.
+- **Insight**: The PR check itself survived the revert (now enforcing the correct constraint), but the original insight was wrong -- Renovate intentionally requires wildcard minutes.
 
 ### Tekton pipeline bundle digest update and Renovate config fix
 - **Repo**: ansible/metrics-service

@@ -144,7 +144,7 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Retry timing and coprime intervals
 - **Files**: task_system.md, bugs_and_pitfalls.md
-- **Evolution**: fixed 10-min retry delay with 3 max attempts (#167) -> exponential backoff with 7 max attempts for Segment tasks (#220) -> base delay changed from 600s to 480s (coprime with 5-min spacing), SEGMENT_MAX_ATTEMPTS removed from wrong task (#276) -> Renovate cron wildcard minute fix (unrelated but same timing lesson) (#281)
+- **Evolution**: fixed 10-min retry delay with 3 max attempts (#167) -> exponential backoff with 7 max attempts for Segment tasks (#220) -> base delay changed from 600s to 480s (coprime with 5-min spacing), SEGMENT_MAX_ATTEMPTS removed from wrong task (#276) -> Renovate cron wildcard minute fix (#281, later reverted in #341 -- Renovate requires wildcard minutes, not standard cron)
 - **PRs**: 4 (#167, #220, #276, #281)
 
 ### Framework alignment (platform-service-framework compliance)
@@ -298,6 +298,16 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: settings_and_configuration.md, architecture.md, metrics_service.md
 - **Evolution**: Default-off opt-in with YAML-based AAPFlag seeding (#168, #184) -> five-tier lookup formalized (#189, #191, #199) -> promoted to default-on, YAML seeding machinery deleted (-560 lines) (#275)
 - **PRs**: 5+ (#168, #184, #189, #191, #199, #275)
+
+### Dashboard retention window derivation
+- **Files**: settings_and_configuration.md, metrics_service.md
+- **Evolution**: static `INITIAL_BACKFILL_DAYS` setting (#319 initial) -> dynamic `get_retention_days()` querying Controller's active cleanup_jobs schedules (#319) -> gated behind `DASHBOARD_COLLECTION['USE_CONTROLLER_RETENTION']` (default False), hardcoded to 90-day `DEFAULT_RETENTION_DAYS` until opt-in (#340)
+- **PRs**: 2 (#319, #340)
+
+### Renovate cron schedule
+- **Files**: ci_cd.md, bugs_and_pitfalls.md
+- **Evolution**: wildcard minutes `"* */12 * * 1-5"` (runs every minute, #271) -> fixed to `"0 */12 * * 1-5"` with PR check preventing wildcards (#281) -> reverted: Renovate requires wildcard minutes, PR check flipped to enforce wildcards (#341)
+- **PRs**: 3 (#271, #281, #341)
 
 ### CI fork handling: secrets checks
 - **Files**: ci_cd.md, bugs_and_pitfalls.md

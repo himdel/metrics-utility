@@ -360,3 +360,9 @@
 - **Commits**: e02d7c8 (#297), 250055f (#298)
 - **What happened**: All remaining `pytz` usage in test files was replaced with `datetime.UTC` (stdlib, Python 3.11+). `pytz` was never a declared dependency -- it was available only transitively via `pandas 2.x`. With `pandas 3.0` (which dropped pytz), the lock file updated from `pandas 2.3.3` to `pandas 3.0.3`, and `pytz` was no longer available. Three test files across `dashboard_reports/` were updated: `test_tasks.py`, `test_models.py`, `test_report_view_data.py`.
 - **Insight**: When upgrading to `pandas 3.0`, audit all test files for `import pytz` -- the migration path is `pytz.UTC` -> `datetime.UTC` and `pytz.utc` -> `datetime.UTC`. The `datetime.UTC` constant is available since Python 3.11.
+
+### PyJWT pinned to exact version for security (AAP-78015)
+- **Repo**: ansible/metrics-service
+- **Commits**: 56fb4e5 (#336)
+- **What happened**: `pyjwt==2.13.0` was added as an explicit exact-version pin in `pyproject.toml` (previously it was a transitive dependency via DAB). This is a security-motivated bump from 2.10.1 to 2.13.0 under AAP-78015. Unlike most dependencies which use range specifiers (`>=`), this uses an exact pin (`==`) reflecting the security requirement to control the exact JWT library version.
+- **Insight**: Security-sensitive authentication libraries (JWT, crypto) should be pinned to exact versions rather than ranges, even when they arrive transitively, to ensure the specific patched version is always used and prevent accidental downgrades.
