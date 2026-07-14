@@ -110,6 +110,12 @@
 - **What happened**: Migration `0205_add_ordering_to_instancegroup_and_workflow_nodes.py` adds `ordering = ('pk',)` to the Meta class of `InstanceGroup`, `WorkflowJobTemplateNode`, and `WorkflowJobNode`. This is a Django `AlterModelOptions` operation that only affects default queryset ordering -- no columns, indexes, or constraints are created.
 - **Insight**: `AlterModelOptions` migrations do not change the database schema at the PostgreSQL level. They only update Django's internal state. None of these three tables are in our tracked collector dependencies.
 
+### AWX migration 0206: composite index on main_jobhostsummary (host_id, id DESC)
+- **Repo**: ansible/awx
+- **Commits**: 41545cfcf0 (#16530)
+- **What happened**: Migration `0206_jobhostsummary_host_id_idx.py` adds a composite index named `main_jobhostsumm_host_id_desc` on `main_jobhostsummary(host_id, id DESC)`. This supports the `with_latest_summary_id()` correlated subquery (introduced when `last_job_host_summary_id` was deprecated in d1b3ae53ae #16332) that finds the latest JobHostSummary per host via `WHERE host_id=X ORDER BY id DESC LIMIT 1`. Without this index, PostgreSQL had to scan and sort rows; with it, the query uses an index-only top-1 scan. The same commit also makes `.distinct()` conditional in the HostList API -- it is now only applied when `host_filter` is set, since without it the RBAC subquery on a direct FK cannot produce duplicates.
+- **Insight**: This index directly affects `main_jobhostsummary`, one of our dependent tables. The index is read-only infrastructure (no column changes), but it signals that AWX is committed to the `with_latest_summary_id()` query pattern as the replacement for the deprecated `main_host.last_job_host_summary_id` FK. Our collectors that join to `main_jobhostsummary` should align with this pattern rather than relying on the stale FK column.
+
 ## Superseded / Semi-Obsolete
 
 ### Core app migrations 0004-0010
