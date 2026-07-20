@@ -582,3 +582,9 @@
 - **Commits**: 27c94ba (#279)
 - **What happened**: SonarQube rule python:S8572 mandates `logger.exception()` over `logger.error()` in all except blocks. The team's policy is more nuanced: use `logger.exception()` (which includes traceback) for broad `except Exception` catches where the exception may be unexpected, but use `logger.error()` for expected cases (e.g., `Task.DoesNotExist`) where the traceback adds noise. The rule was suppressed globally in `sonar-project.properties` via `sonar.issue.ignore.multicriteria.e4`. Specific handlers were also split to have separate `except DoesNotExist` (logger.error) and `except Exception` (logger.exception) clauses.
 - **Insight**: Blanket lint rules like "always use logger.exception in except blocks" don't fit all codebases. Expected error cases (DoesNotExist, known validation failures) should use `logger.error` to avoid log noise, while unexpected catches should use `logger.exception` to preserve the traceback. Suppressing the rule globally and documenting the policy is better than sprinkling `# noqa` comments everywhere.
+
+### INSTALL_TYPE setting for deployment method tracking
+- **Repo**: ansible/metrics-service
+- **Commits**: 046e55e (#352)
+- **What happened**: `INSTALL_TYPE = "containerized"` added to `apps/settings/defaults.py`, overridable via `METRICS_SERVICE_INSTALL_TYPE` env var. The operator companion PR injects `METRICS_SERVICE_INSTALL_TYPE=operator`. Used in `daily_anonymize_and_prepare` to include `install_type` in `summary_metadata`. Follows the standard Dynaconf pattern: setting name in defaults.py, prefixed env var for override.
+- **Insight**: The `METRICS_SERVICE_` env var prefix is the standard Dynaconf convention for this project. New settings should follow the pattern: define in `apps/settings/defaults.py` with a reasonable default, override via `METRICS_SERVICE_<SETTING_NAME>` env var.

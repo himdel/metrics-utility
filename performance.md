@@ -108,6 +108,12 @@
 - **What happened**: Performance test tools (`benchmark_api.py`, `benchmark_manage.py`, `collection_rollup_benchmark_hourly.py`, `benchmark_dashboard_api.py`, `benchmark_dashboard_collection.py`, `fill_data.py`) were moved from the metrics-service repo into `tools/service_perf/` and `tools/dashboard_perf/` in metrics-utility. Path resolution was updated to find `../metrics-service` as a sibling repo for Django settings/imports. The `tools/service_tasks/` directory was moved back to metrics-service since those scripts talk to the service API directly.
 - **Insight**: Performance test tools that exercise the metrics-utility library (via the service) belong in the utility repo since they need to evolve alongside collector changes -- but scripts that interact with the service API belong in the service repo.
 
+### Perf harness: realistic events data and indirect node scale tiers
+- **Repo**: ansible/metrics-utility
+- **Commits**: 44d165c (#484)
+- **What happened**: Two improvements to the `tools/anonymized_db_perf_data/` perf harness: (1) The `events` field in synthetic indirect node audit records was populated with realistic Ansible collection module names from three collections with `event_query.yml` in `ee-supported-rhel9`: `cisco.intersight`, `microsoft.ad`, and `vmware.vmware`. Previously `events` was `[]`, causing all synthetic records to fall into the `_no_collection`/`_no_module` buckets, making the test data useless for analytics. (2) `indirect_count` was added to each dataset tier in `run_all_dataset_sizes.py`: small=1K, medium=100K, large=1M. These align with realistic deployment accumulation over weeks, months, and year-plus of indirect node collection. The indirect node collector does a full-table scan with no date filter, so its relevant scale is total accumulated rows rather than rows per time window.
+- **Insight**: Performance test data must exercise the code paths that matter at scale -- uniform empty-events data never hits the collection/module grouping and aggregation paths, making the benchmark results unrepresentative of real-world performance. Scale tiers for accumulation-based collectors (no date pruning) should reflect total row count, not per-window row count.
+
 ## Superseded / Semi-Obsolete
 
 ### http_benchmark.py (GET-endpoint latency tests)

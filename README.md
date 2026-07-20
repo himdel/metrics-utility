@@ -37,8 +37,8 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 0b1bf3e | 2026-07-14 | Feature/perf test indirect nodes (#478) |
-| metrics-service | 75c71b1 | 2026-07-14 | Remove celery reference (#346) |
+| metrics-utility | c3d6e55 | 2026-07-17 | fix(test): move assert outside try-except to resolve Sonar S5779 (#486) |
+| metrics-service | 046e55e | 2026-07-17 | feat: add install_type to anonymized metrics payload (#352) |
 | awx | 41545cfcf0 | 2026-07-06 | Optimize HostList API: conditional DISTINCT + composite index on JobHostSummary (#16530) |
 
 ## About the "Superseded / Semi-Obsolete" sections

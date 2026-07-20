@@ -286,8 +286,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Indirect managed nodes: prototype to feature-gated group to collection-grouped daily
 - **Files**: architecture.md, metrics_collection.md, task_system.md, settings_and_configuration.md, metrics_utility.md, bugs_and_pitfalls.md
-- **Evolution**: Collector added to METRICS_COLLECTION_GROUP (#274) -> integrated into daily anonymization pipeline (#296) -> extracted into own INDIRECT_NODE_COLLECTION_GROUP with INDIRECT_NODE_COLLECTION feature flag, default off (#301) -> fix: task function was never registered, silently never ran (#315) -> m-u rollup added with host_remote_id dedup (#446, #453, #457) -> moved hourly->snapshot on service side (#331) -> briefly converted to snapshot/until_slicing on library side (m-u #464) -> converted to daily slicing by job.finished with collection grouping, version bumped to 2.0 (m-u #475) -> moved snapshot->daily on service side with per-collector DB routing (#332). The rollup now groups by (org, collection_name) using events JSON parsing, and base() strips PII by removing host_names and org_name.
-- **PRs**: 11+ (m-s #274, #296, #301, #315, #331, #332; m-u #446, #453, #457, #464, #475)
+- **Evolution**: Collector added to METRICS_COLLECTION_GROUP (#274) -> integrated into daily anonymization pipeline (#296) -> extracted into own INDIRECT_NODE_COLLECTION_GROUP with INDIRECT_NODE_COLLECTION feature flag, default off (#301) -> fix: task function was never registered, silently never ran (#315) -> m-u rollup added with host_remote_id dedup (#446, #453, #457) -> moved hourly->snapshot on service side (#331) -> briefly converted to snapshot/until_slicing on library side (m-u #464) -> converted to daily slicing by job.finished with collection grouping, version bumped to 2.0 (m-u #475) -> moved snapshot->daily on service side with per-collector DB routing (#332). The rollup now groups by (org, collection_name) using events JSON parsing, and base() strips PII by removing host_names and org_name. -> dead code removal: by_organizations and by_collections computed in prepare()/merge() but never read by base() (#479) -> module-level breakdown added as parallel module_groups structure (#482) -> collection_name/module_name renamed to collection/module for Segment compatibility (#484)
+- **PRs**: 14+ (m-s #274, #296, #301, #315, #331, #332; m-u #446, #453, #457, #464, #475, #479, #482, #484)
 
 ### Events collector: disabled, re-enabled with limits
 - **Files**: metrics_collection.md, settings_and_configuration.md
@@ -316,5 +316,15 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Jira PR linking action: rapid iterative fixes
 - **Files**: ci_cd.md
-- **Evolution**: Initial action with BOT_GITHUB_TOKEN + pull_request trigger (#304) -> fix: use github.token instead of BOT_GITHUB_TOKEN (#308) -> fix: pull_request_target + marker-based comment management + trailing whitespace (#309) -> fix: remove backticks from ticket name in comment (#310)
-- **PRs**: 4 (#304, #308, #309, #310)
+- **Evolution**: Initial action with BOT_GITHUB_TOKEN + pull_request trigger (#304) -> fix: use github.token instead of BOT_GITHUB_TOKEN (#308) -> fix: pull_request_target + marker-based comment management + trailing whitespace (#309) -> fix: remove backticks from ticket name in comment (#310) -> rewrite from curl/API v2 (overwriting) to Python/API v3 with ADF-aware append (#347)
+- **PRs**: 5 (#304, #308, #309, #310, #347)
+
+### Segment payload field naming: "name" keyword filtering
+- **Files**: metrics_utility.md, bugs_and_pitfalls.md, testing.md
+- **Evolution**: Fields named `collection_name` and `module_name` used in indirect nodes rollup (#475, #482) and events modules rollup (various) -> discovered Segment downstream destinations silently drop properties whose key contains "name" -> indirect nodes rollup renamed to `collection`/`module` (m-u #484) -> events modules rollup renamed to `collection`/`module` via `_normalize_stats_item()` helper (m-u #485). Rename applied at output time in `base()` so internal DataFrame column names are unchanged. -> metrics-service test mock updated to match renamed field (m-s #350)
+- **PRs**: 3 (m-u #484, m-u #485, m-s #350) -- cross-repo rename cascade
+
+### External service telemetry ingest POC: pushed and reverted
+- **Files**: bugs_and_pitfalls.md, architecture.md
+- **Evolution**: Full `service_ingest` Django app pushed directly to devel without PR (3fe5d45) -> immediate fix for ServiceUser/CommonModel runtime issues (eccada7) -> CI workflow fix (#347) accidentally included service_ingest-related changes -> entire app reverted because it bypassed PR review process (#349). The jira-pr-link workflow fix from #347 was carefully preserved during the revert.
+- **PRs**: 1 (#349 revert) -- the original commits had no PR numbers, which was the problem

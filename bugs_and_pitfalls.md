@@ -711,3 +711,45 @@
 - **Commits**: 425138c (#341)
 - **What happened**: PR #281 previously fixed a Renovate cron schedule that had `"* */12 * * 1-5"` (wildcard minute = runs every minute) by changing it to `"0 */12 * * 1-5"`. But Renovate doesn't support minute granularity at all -- it requires `*` for the minutes field. The fix broke the config entirely, causing Renovate to reject the schedule. Reverted to `"* */12 * * 1-5"` with a comment explaining why, and the PR check was flipped to enforce wildcard minutes (the opposite of what #281 enforced).
 - **Insight**: Renovate's cron format is not standard cron -- it ignores the minutes field and requires `*` there. The same "wildcard minutes = runs every minute" logic that's correct for system cron is wrong for Renovate. Always check a tool's cron documentation before applying general cron best practices.
+
+### IndirectManagedNodeAudit has no `modified` column (inherits BaseModel, not CreatedModifiedModel)
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0fdebe3 (#483)
+- **What happened**: The perf harness `create_indirect_managed_node_audits()` INSERT included a `modified` column, which worked against the local mock database but failed on a real AWX instance. `IndirectManagedNodeAudit` inherits directly from `BaseModel` rather than AWX's standard `CreatedModifiedModel` chain, so the table has only `created` but no `modified` column. This is intentional design -- audit records are append-only (created but never updated). Removed `modified` from both the VALUES and column list.
+- **Insight**: AWX models don't all share the same base -- `IndirectManagedNodeAudit` uses `BaseModel` (created-only) while most models use `CreatedModifiedModel` (created + modified). Performance harness INSERTs must match the actual table schema, which may differ from the common pattern. Testing only against mocks can miss schema mismatches.
+
+### Naive datetime raises ValueError in date_where utility
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0fdebe3 (#483)
+- **What happened**: The perf harness `rollup_performance_test.py` parsed `--since`/`--until` via `datetime.strptime()` which produces timezone-naive datetimes. The `date_where()` utility raises `ValueError` on naive datetime inputs. This worked against the local mock but failed on real instances because `unified_jobs` and `job_host_summary_service` collectors both call `date_where()` directly. Fixed by adding `.replace(tzinfo=timezone.utc)` after parsing.
+- **Insight**: Always produce timezone-aware datetimes when working with the metrics pipeline -- `date_where()` rejects naive datetimes, and this only surfaces against real instances where the collector code path is exercised end-to-end.
+
+### Perf harness fill and rollup used coincidentally matching dates
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0fdebe3 (#483)
+- **What happened**: The `run_all_dataset_sizes.py` script ran the fill step without explicit `--since`/`--until` flags (defaulting to January 2024) while the rollup queried January 2024 via `test_since`/`test_until` config. They matched, but only by coincidence. Fixed by passing explicit `--since`/`--until` from the config to the fill step, making the date coupling explicit and robust.
+- **Insight**: When two pipeline steps must agree on a date range, pass it explicitly to both rather than relying on defaults that happen to match -- defaults can change independently, silently breaking the pipeline.
+
+### Segment silently drops properties whose key contains "name"
+- **Repo**: ansible/metrics-utility
+- **Commits**: 44d165c (#484), 0b85f12 (#485)
+- **What happened**: Segment downstream destinations filter out any property whose key contains the substring `name`. Fields like `collection_name`, `module_name` in `module_stats`, `collection_stats`, `role_stats`, and `by_collection`/`by_module` arrays were being silently dropped -- no error, no warning, just absent in analytics queries. Discovered only after checking downstream data. Renamed to `collection` and `module` across both indirect nodes (#484) and events modules (#485) rollups.
+- **Insight**: Segment's property-name filtering is completely silent -- data is accepted by the Segment API but filtered out before reaching downstream destinations. This is a unique class of bug where the write succeeds and the data appears to be sent, but downstream queries return nothing. Always check Segment's reserved words and key-name restrictions before defining payload field names.
+
+### Sonar S5779: assert inside bare except hides test failures
+- **Repo**: ansible/metrics-utility
+- **Commits**: c3d6e55 (#486)
+- **What happened**: A test's CSV validation had `assert len(df) > 0` inside a `try/except Exception` block. If the assert failed, the `except` caught `AssertionError` and called `pytest.fail()` with a generic "Failed to read" message, hiding the actual assertion failure. Fixed by narrowing the `except` to `(IOError, UnicodeDecodeError, pandas.errors.ParserError)` -- specific I/O and parsing exceptions that the try block is actually guarding against.
+- **Insight**: Never place `assert` inside a broad `except` block -- `AssertionError` is an `Exception` subclass, so bare `except Exception` catches test assertion failures and masks them behind a different error message. Use specific exception types in test try/except blocks.
+
+### POC pushed direct to devel without PR — reverted
+- **Repo**: ansible/metrics-service
+- **Commits**: 3fe5d45, eccada7, dfe6110 (#349)
+- **What happened**: Two commits adding a full `service_ingest` Django app (external service telemetry ingest pipeline with models, views, authentication, migrations, tasks, and settings) were pushed directly to the `devel` branch without going through a pull request. The second commit (eccada7) was an immediate fix for runtime issues found during local testing (missing `is_anonymous`/`is_active` on ServiceUser, DAB CommonModel.save() FK constraint via crum thread-local). The entire app was reverted two days later in PR #349 because it bypassed the PR review process. The revert carefully preserved the unrelated jira-pr-link workflow fix from #347 that had been interleaved.
+- **Insight**: Never push feature work directly to the default branch, even for POCs. The two commits illustrate the risk: the first commit had runtime bugs (ServiceUser incompatible with DRF, CommonModel FK constraint), and the fix commit also bypassed review. The revert was surgically clean because the code was isolated in its own `apps/service_ingest/` directory -- good app isolation made the rollback straightforward.
+
+### DAB CommonModel.save() reads crum thread-local user for created_by FK
+- **Repo**: ansible/metrics-service
+- **Commits**: eccada7 (reverted in dfe6110 #349)
+- **What happened**: When a DRF view using a non-Django user (ServiceUser for token auth) created a Task via `Task.objects.create()`, DAB's `CommonModel.save()` read the request user from crum's thread-local storage and tried to set `created_by` as a FK to auth.User. Since ServiceUser is not a Django User model, this caused an FK constraint violation. The workaround was `crum.impersonate(None)` to temporarily clear the thread-local. A second fix switched ExternalEvent from CommonModel to plain `models.Model` to avoid the same issue entirely.
+- **Insight**: Any model inheriting from DAB's CommonModel will attempt to set `created_by`/`modified_by` FKs via crum thread-local user. Service-to-service endpoints using non-Django auth users must either wrap model creation in `crum.impersonate(None)` or avoid CommonModel for models that don't need user audit trails.

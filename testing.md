@@ -422,3 +422,15 @@
 - **Commits**: 686dfee (#278)
 - **What happened**: The `test_metrics_service_tasks_create` test wrapped `call_command()` in `try/except (SystemExit, Exception): pass`, so the test "passed" even when the command failed. The underlying bug: `argparse` sets `--description` to `None` when omitted, so `options.get("description", "")` never triggers the default (the key exists, it's just `None`), and `None` was passed to the DB. Fix: add `default=""` to the argparse argument definition, and remove the exception swallow so the test actually verifies task creation with `Task.objects.get()` assertions.
 - **Insight**: Never use bare `except: pass` in tests -- it converts failures into false passes. For argparse arguments where absence should mean empty string (not NULL), use `default=""` in `add_argument()` because `.get(key, fallback)` doesn't trigger the fallback when the key exists with value `None`.
+
+### Sonar S5779: assert inside try/except Exception masks test failures
+- **Repo**: ansible/metrics-utility
+- **Commits**: c3d6e55 (#486)
+- **What happened**: A CSV validation test had `assert len(df) > 0` inside `try: ... except Exception as e: pytest.fail(...)`. Since `AssertionError` is a subclass of `Exception`, a failing assert was caught by the except block and re-raised as `pytest.fail("Failed to read ...")`, hiding the original assertion message. Fixed by narrowing the except clause to `(IOError, UnicodeDecodeError, pandas.errors.ParserError)` -- the specific exceptions the try block guards against.
+- **Insight**: Sonar rule S5779 catches a subtle pattern where broad exception handling in tests masks assertion failures. The fix pattern is always: narrow the except clause to the specific exceptions you expect from the non-assert code, letting AssertionError propagate naturally to pytest.
+
+### Test mock updated for cross-repo Segment field rename (collection_name -> collection)
+- **Repo**: ansible/metrics-service
+- **Commits**: e4ba452 (#350)
+- **What happened**: After metrics-utility renamed `collection_name` to `collection` in the indirect nodes rollup (m-u PRs #484/#485) to work around Segment silently filtering properties containing the substring "name", a test mock in `test_collect_daily_indirect_nodes.py` still used the old `collection_name` key. PR #350 updated the mock to use `collection` to match the upstream data shape.
+- **Insight**: Cross-repo field renames require updating both the producer (metrics-utility rollup) and the consumer (metrics-service mocks/tests). When a field rename is driven by an external constraint (Segment's "name" filtering), search both repos for the old field name to catch stale references in test fixtures.
