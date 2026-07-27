@@ -37,9 +37,9 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | c3d6e55 | 2026-07-17 | fix(test): move assert outside try-except to resolve Sonar S5779 (#486) |
-| metrics-service | 046e55e | 2026-07-17 | feat: add install_type to anonymized metrics payload (#352) |
-| awx | 41545cfcf0 | 2026-07-06 | Optimize HostList API: conditional DISTINCT + composite index on JobHostSummary (#16530) |
+| metrics-utility | c7f6c6c | 2026-07-24 | CI - add mock segment server to pytest-service job (#500) |
+| metrics-service | 65c02c8 | 2026-07-24 | AAP-83755 - fix: pin pyasn1 to ~=0.6.4 instead of >=0.6.4 (#369) |
+| awx | 64dc097914 | 2026-07-22 | [AAP-82221] Add member_organization to specialized Organization *Admin roles (#16545) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
