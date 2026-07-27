@@ -317,6 +317,30 @@
 - **What happened**: Dependabot bumped `SonarSource/sonarqube-scan-action` from 7.2.1 to 8.2.0 across both `pytest.yml` and `sonar_checks.yml`. This is a major version bump (7 to 8).
 - **Insight**: SonarCloud action major version bumps are generally transparent for projects that don't use advanced scanner configuration -- the action's interface (env vars, inputs) has remained stable across major versions.
 
+### AWX schema CI: backports-zstd filtered on Python 3.14+
+- **Repo**: ansible/metrics-utility
+- **Commits**: def6086 (#487)
+- **What happened**: The `awx-schema.yml` workflow installs AWX's Python requirements to run migrations and dump the schema. The `backports-zstd` package (in AWX's requirements) is a backport of Python 3.14's `compression.zstd` module and cannot be installed on Python 3.14+ (namespace conflict with stdlib). Since the CI matrix allows Python 3.12-3.14, a conditional `sed` filter was added: `python -c 'import sys; sys.exit(0 if sys.version_info >= (3,14) else 1)' && sed -i '/^backports-zstd/d' /tmp/awx-requirements-filtered.txt`.
+- **Insight**: When installing upstream dependencies in CI, backport packages (backports-zstd, typing-extensions, etc.) may conflict with newer Python stdlib versions. A version-conditional filter avoids the conflict without forking the requirements file.
+
+### AWX schema CI: pg_dump auth fix, validation gate, and Slack notifications
+- **Repo**: ansible/metrics-utility
+- **Commits**: b77528e (#497), 554c73f (#499)
+- **What happened**: The AWX schema update workflow (#461) had three issues on its first production run: (1) `pg_dump` failed silently because the GHA runner's bash runs `-e` without `-o pipefail`, so the failure was masked by the trailing `sed` exiting 0. Fix: added a validation step that fails the job if the dump doesn't contain `CREATE TABLE`. (2) `pg_dump` auth was switched from `-U awx -h localhost` (password-based) to `sudo -u postgres pg_dump -s awx` (peer auth via unix socket), consistent with how the DB setup steps work. (3) PR creation via `peter-evans/create-pull-request` and `gh pr create` fallback both failed due to GITHUB_TOKEN permissions. After trying both approaches in #497, PR creation was dropped entirely in #499 -- the workflow now just pushes the `awx-schema-update` branch and notifies Slack with a compare link. Slack notifications also had to be fixed: the initial webhook variable (`SLACK_CLOUD_WEBHOOK_URL`) was wrong, corrected to `SLACK_ESBN_WEBHOOK_URL` in #499.
+- **Insight**: For automated schema update workflows, pushing a branch + Slack notification is more robust than automated PR creation (which requires repo-level "Allow GitHub Actions to create PRs" setting). Always validate the output of pipeline-critical commands (like pg_dump) before proceeding -- bash's default error handling silently masks failures in pipelines.
+
+### Jira PR link workflow ported from metrics-service (append mode with ADF)
+- **Repo**: ansible/metrics-utility
+- **Commits**: c6b16a5 (#494)
+- **What happened**: The jira-pr-link workflow was ported from metrics-service (state as of ansible/metrics-service#362) to replace the bash/curl version that blindly overwrote the Jira `Git Pull Request` field. The new Python-based workflow uses Jira API v3 to: (1) GET the current field value as ADF, (2) deep-search the ADF tree for duplicate URLs via `find_urls()`, (3) append a new link paragraph or upgrade plain-string values from the old API v2 format to ADF, (4) PUT the updated ADF back. After this change, the workflow files are identical between metrics-utility and metrics-service.
+- **Insight**: Cross-repo workflow synchronization (keeping identical workflow files in both repos) is a maintenance strategy that makes future updates easier -- changes can be made in one repo and copied to the other. The Python/API v3 approach handles edge cases the bash/curl version missed: null fields, plain-string legacy values, human-edited ADF content, and substring false positives in URL duplicate detection.
+
+### Mock Segment server added to pytest-service CI job
+- **Repo**: ansible/metrics-utility
+- **Commits**: c7f6c6c (#500)
+- **What happened**: The metrics-utility CI runs metrics-service tests against the local metrics-utility checkout (cross-repo testing from #427). After metrics-service gained integration tests that use a mock Segment server (#366), the metrics-utility `pytest-service` CI job needed the same mock. The Go-based mock server is built and started as a background process before running metrics-service tests, and `MOCK_SEGMENT_URL` is added to the compose env anchor. This duplicates some setup from the main pytest job until the two jobs are unified.
+- **Insight**: Cross-repo CI testing requires keeping both repos' test environments in sync. When the downstream repo (metrics-service) adds a new test dependency (mock Segment server), the upstream repo's cross-repo CI job must be updated to match. Env-var-based service URLs (`MOCK_SEGMENT_URL`) make the mock server location configurable between native process and Docker container networking.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)

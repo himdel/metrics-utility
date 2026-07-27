@@ -316,8 +316,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Jira PR linking action: rapid iterative fixes
 - **Files**: ci_cd.md
-- **Evolution**: Initial action with BOT_GITHUB_TOKEN + pull_request trigger (#304) -> fix: use github.token instead of BOT_GITHUB_TOKEN (#308) -> fix: pull_request_target + marker-based comment management + trailing whitespace (#309) -> fix: remove backticks from ticket name in comment (#310) -> rewrite from curl/API v2 (overwriting) to Python/API v3 with ADF-aware append (#347)
-- **PRs**: 5 (#304, #308, #309, #310, #347)
+- **Evolution**: Initial action with BOT_GITHUB_TOKEN + pull_request trigger (#304) -> fix: use github.token instead of BOT_GITHUB_TOKEN (#308) -> fix: pull_request_target + marker-based comment management + trailing whitespace (#309) -> fix: remove backticks from ticket name in comment (#310) -> rewrite from curl/API v2 (overwriting) to Python/API v3 with ADF-aware append (m-s #347) -> ported to m-u (#494), now identical between both repos
+- **PRs**: 6 (m-u #304, #308, #309, #310, m-s #347, m-u #494)
 
 ### Segment payload field naming: "name" keyword filtering
 - **Files**: metrics_utility.md, bugs_and_pitfalls.md, testing.md
@@ -328,3 +328,18 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: bugs_and_pitfalls.md, architecture.md
 - **Evolution**: Full `service_ingest` Django app pushed directly to devel without PR (3fe5d45) -> immediate fix for ServiceUser/CommonModel runtime issues (eccada7) -> CI workflow fix (#347) accidentally included service_ingest-related changes -> entire app reverted because it bypassed PR review process (#349). The jira-pr-link workflow fix from #347 was carefully preserved during the revert.
 - **PRs**: 1 (#349 revert) -- the original commits had no PR numbers, which was the problem
+
+### AWX schema update workflow: CI hardening
+- **Files**: ci_cd.md
+- **Evolution**: Initial extraction script and weekly cron workflow (#461) -> backports-zstd filtered on Python 3.14+ (#487) -> pg_dump auth fix, empty-dump validation, Slack notifications, PR creation via peter-evans + gh cli fallback (#497) -> PR creation dropped (permissions issues), branch push + Slack compare link, webhook variable fixed (#499)
+- **PRs**: 4 (#461, #487, #497, #499)
+
+### Events rollup counting strategy
+- **Files**: metrics_utility.md, architecture.md, performance.md
+- **Evolution**: inferred task outcomes (success, failed with retries, skipped, ignored) via event sequence analysis (original) -> direct 1-to-1 event type counters (runner_on_ok_total, runner_on_failed_total, etc.) with no task-outcome inference (#480). Old task-level columns removed: task_ok_total, task_ok_with_retries_total, task_failed_total, task_unreachable_total, task_skipped_total, task_failed_and_ignored_total. New columns added: runner_on_async_ok_total, runner_on_async_failed_total, runner_item_on_ok_total, runner_item_on_failed_total, runner_retry_total, ignore_errors_total, event_data_size_total. unique_hosts_total removed for performance. playbook_on_stats removed (high volume, redundant).
+- **PRs**: 1 (#480) -- major reshape in single PR
+
+### S3-compatible dev/CI storage
+- **Files**: docker_and_deployment.md
+- **Evolution**: MinIO with separate mc init container for bucket/user/key creation (original) -> SeaweedFS with zero-setup env-var-only config (#488)
+- **PRs**: 1 (#488)
