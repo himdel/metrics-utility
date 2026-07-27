@@ -116,6 +116,18 @@
 - **What happened**: Migration `0206_jobhostsummary_host_id_idx.py` adds a composite index named `main_jobhostsumm_host_id_desc` on `main_jobhostsummary(host_id, id DESC)`. This supports the `with_latest_summary_id()` correlated subquery (introduced when `last_job_host_summary_id` was deprecated in d1b3ae53ae #16332) that finds the latest JobHostSummary per host via `WHERE host_id=X ORDER BY id DESC LIMIT 1`. Without this index, PostgreSQL had to scan and sort rows; with it, the query uses an index-only top-1 scan. The same commit also makes `.distinct()` conditional in the HostList API -- it is now only applied when `host_filter` is set, since without it the RBAC subquery on a direct FK cannot produce duplicates.
 - **Insight**: This index directly affects `main_jobhostsummary`, one of our dependent tables. The index is read-only infrastructure (no column changes), but it signals that AWX is committed to the `with_latest_summary_id()` query pattern as the replacement for the deprecated `main_host.last_job_host_summary_id` FK. Our collectors that join to `main_jobhostsummary` should align with this pattern rather than relying on the stale FK column.
 
+### AWX migration 0207: skip_tags converted from CharField(1024) to TextField on Job and JobTemplate
+- **Repo**: ansible/awx
+- **Commits**: 9acf3d1887 (#16552)
+- **What happened**: Migration `0207_alter_skip_tags_to_textfield.py` changes the `skip_tags` column from `CharField(max_length=1024)` to `TextField(blank=True, default='')` on both `main_job` and `main_jobtemplate`. The `max_length` constraint is removed entirely. This was a bug fix -- `job_tags` was already a TextField while `skip_tags` was artificially limited to 1024 characters, causing silent truncation for users with many tags.
+- **Insight**: Both `main_job` and `main_jobtemplate` are in our dependent tables list. At the PostgreSQL level, `CharField` and `TextField` are both stored as `text` -- the only difference is the `CHECK (char_length(skip_tags) <= 1024)` constraint, which this migration drops. No data migration is needed. If our collectors SELECT `skip_tags`, values may now exceed 1024 characters.
+
+### RBAC role definitions updated via post-migrate signal (no numbered migration)
+- **Repo**: ansible/awx
+- **Commits**: 64dc097914 (#16545)
+- **What happened**: The `member_organization` permission was added to six specialized Organization *Admin role definitions (Project, Credential, Inventory, NotificationTemplate, WorkflowJobTemplate, ExecutionEnvironment). Instead of a numbered migration, the fix modifies the `_dab_rbac.py` migration helper and connects `setup_managed_role_definitions` to the `dab_post_migrate` signal in `apps.py`, so existing installs get the fix applied automatically on upgrade. A new setting `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER = True` was also added. No schema changes -- this only affects data in DAB RBAC permission/role definition tables, none of which are in our dependent tables.
+- **Insight**: AWX is shifting toward post-migrate signal handlers for RBAC definition sync rather than numbered migrations. This pattern means role definition changes won't appear as numbered migrations in the migration chain, but will be applied on every startup. Our collectors are unaffected since we don't read from DAB RBAC tables.
+
 ## Superseded / Semi-Obsolete
 
 ### Core app migrations 0004-0010
