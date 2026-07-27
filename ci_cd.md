@@ -341,6 +341,18 @@
 - **What happened**: The metrics-utility CI runs metrics-service tests against the local metrics-utility checkout (cross-repo testing from #427). After metrics-service gained integration tests that use a mock Segment server (#366), the metrics-utility `pytest-service` CI job needed the same mock. The Go-based mock server is built and started as a background process before running metrics-service tests, and `MOCK_SEGMENT_URL` is added to the compose env anchor. This duplicates some setup from the main pytest job until the two jobs are unified.
 - **Insight**: Cross-repo CI testing requires keeping both repos' test environments in sync. When the downstream repo (metrics-service) adds a new test dependency (mock Segment server), the upstream repo's cross-repo CI job must be updated to match. Env-var-based service URLs (`MOCK_SEGMENT_URL`) make the mock server location configurable between native process and Docker container networking.
 
+### Tekton pipeline bundle digest updated for ATF auto-detection fix
+- **Repo**: ansible/metrics-service
+- **Commits**: 6644336 (#367)
+- **What happened**: The Tekton pipeline bundle digest SHA in `.tekton/run-atf-tests-pull-request.yaml` was updated to pick up a fix from `aap-konflux-pipelines#2006` that auto-detects `ansible-metrics-service` as the test target. Previously, the pipeline required manual configuration to identify the correct service under test. The digest update is a single-line change to the OCI image reference.
+- **Insight**: Tekton pipeline bundle digests are OCI image references pinned by SHA. When the upstream pipeline image is fixed (e.g., adding auto-detection for a service), the downstream repo must update the digest to pick up the fix. This is a manual process until mint maker automation handles it, and Renovate can be configured to auto-propose these updates.
+
+### Mock Segment server added to metrics-service CI
+- **Repo**: ansible/metrics-service
+- **Commits**: a2ee264 (#366)
+- **What happened**: The `.github/workflows/pytest.yml` workflow gained steps to: (1) clone `ansible/metrics-utility` at `HEAD`, (2) build the Go-based mock Segment server from `metrics-utility/tools/mock-segment-server/`, (3) start it as a background process, and (4) set `MOCK_SEGMENT_URL=http://localhost:8765` as an environment variable for the test run. The mock server receives Segment `track()` calls and stores them in memory for assertion. AWX database credentials in the workflow were also fixed from `127.0.0.1/mypassword` to `localhost/awx/awx` to match the actual test database configuration.
+- **Insight**: Hosting the mock server source in the upstream repo (metrics-utility) and building it at CI time in the downstream repo (metrics-service) keeps the mock implementation in one place while making it available to both repos' CI. The Go binary builds fast enough (~2s) that the CI overhead is minimal. Environment-variable-based service URL injection (`MOCK_SEGMENT_URL`) decouples the test code from the mock's network location.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)
@@ -402,3 +414,15 @@
 - **Commits**: f0b4e2f (#347)
 - **What happened**: The jira-pr-link workflow was rewritten from a simple `curl PUT` (API v2, overwriting the field) to a Python script using Jira API v3 (ADF-aware). The new flow: (1) GET the current field value as ADF, (2) check if the PR URL is already linked (skip if so), (3) append a new `hardBreak` + link node to the existing ADF paragraph (or create a new ADF doc if empty), (4) PUT the updated ADF back. This preserves previously-linked PRs instead of overwriting them. The script uses `urllib.request` (no external deps) and gracefully warns on failure instead of failing the workflow.
 - **Insight**: Jira API v2 `PUT /rest/api/2/issue/{key}` treats text fields as simple strings and overwrites them. To append to rich-text fields (which Jira Cloud stores as ADF), use API v3 to read/modify/write the ADF document structure. The ADF append pattern is: access `content[0]["content"]`, append a `hardBreak` node, then append the new text/link node.
+
+### Jira PR link: improved ADF append logic and deep duplicate detection
+- **Repo**: ansible/metrics-service
+- **Commits**: beefc12 (#362)
+- **What happened**: The jira-pr-link ADF append logic from #347 had two issues: (1) Duplicate detection was shallow -- it only checked `content[0]["content"]` items for matching `text` properties, missing URLs stored in `marks[].attrs.href` or in deeply nested ADF structures (e.g., after human editing in Jira). (2) Appending to the first paragraph's inline content (via `hardBreak` + text node) didn't handle edge cases: plain-string field values from the old API v2, or ADF docs where the first content block was not a paragraph. Fixes: a recursive `find_urls(node)` function deep-searches the entire ADF tree for URLs in `href`, `url`, and text-starting-with-http fields. Each new PR link gets its own paragraph node (via `make_link_paragraph()`) appended to `content[]` rather than inlined in the first paragraph. Plain-string legacy values are upgraded to a proper ADF doc with two paragraphs. Error response bodies are now logged for debugging failed PUT requests.
+- **Insight**: When appending to Jira ADF fields: (1) use per-link paragraphs instead of inline hardBreak nodes -- paragraphs are more resilient to manual editing in the Jira UI; (2) duplicate detection must deep-search the entire ADF tree, not just the first paragraph, because users may edit the field structure; (3) handle the plain-string legacy case (from API v2 writes) by wrapping it in a new ADF doc.
+
+### OpenAPI schema CI must apply Django migrations before drf-spectacular generation
+- **Repo**: ansible/metrics-service
+- **Commits**: 412bfe6 (#361)
+- **What happened**: The `pr-checks.yml` workflow ran `manage.py spectacular` against PostgreSQL without applying migrations first. Some model and serializer code paths hit the DB during schema introspection (e.g., querying for field metadata, resolving FK relationships), producing "relation does not exist" errors. The schema generated against an empty DB differed from the locally-generated committed version (e.g., path parameter types resolved as `string` instead of `integer`). Fix: added "Wait for Postgres" and "Apply Django migrations" steps before the schema generation step, with full Dynaconf database env vars.
+- **Insight**: drf-spectacular's schema generation is not purely static -- it can trigger DB queries during introspection (model meta, serializer field resolution). CI workflows that validate the generated schema against committed files must apply migrations first to ensure the database schema matches what the serializer expects. Schema differences between CI and local generation often indicate a missing migration step, not an actual code change.

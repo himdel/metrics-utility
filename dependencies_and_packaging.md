@@ -275,6 +275,18 @@
 - **What happened**: The `metrics-utility` dependency lower bound was bumped from `>=0.7.x` to `>=0.8.0` because metrics-utility 0.8.0 removed the `salt` parameter from `anonymize_rollups()` (ansible/metrics-utility#399). The service's devel branch had already stopped passing `salt=` (#215), but the dep spec still allowed installing 0.7.x which requires the salt parameter. This ensures only the salt-free version is accepted.
 - **Insight**: When a library removes a parameter from its API, the service-side dep spec must be bumped to reject the old version -- otherwise the lockfile could resolve to an incompatible release. The 0.7/2.7 maintenance branch uses the salt param consistently, so this bump only affects devel/main.
 
+### pyasn1 pinned with compatible-release operator after initial >= mistake
+- **Repo**: ansible/metrics-service
+- **Commits**: 56267e9 (#368), 65c02c8 (#369)
+- **What happened**: PR #368 added `"pyasn1>=0.6.4"` to `pyproject.toml` dependencies to address a transitive dependency issue. PR #369 (same day follow-up) corrected the version specifier from `>=0.6.4` to `~=0.6.4` (PEP 440 compatible release). The `>=` operator would allow pyasn1 1.0+ which could introduce breaking changes; `~=0.6.4` constrains to `>=0.6.4, <0.7.0`, staying on the 0.6.x line.
+- **Insight**: Use `~=` (compatible release) rather than `>=` when pinning a dependency to a specific minor line. `>=0.6.4` is dangerously permissive for pre-1.0 packages where minor versions can contain breaking changes. The two-PR sequence (add then fix) is a common pattern when the initial version specifier isn't reviewed carefully. For pre-1.0 packages, `~=0.X.Y` is almost always the right choice.
+
+### Coverage source narrowed from repo root to specific packages
+- **Repo**: ansible/metrics-service
+- **Commits**: a2ee264 (#366)
+- **What happened**: In `pyproject.toml`, the `[tool.coverage.run]` source was changed from `["."]` (entire repo root) to `["apps", "metrics_service"]` (the two actual Python packages). The old config measured coverage for everything in the repo including test files, config scripts, and tools, inflating the denominator and making coverage percentages misleadingly low.
+- **Insight**: Coverage `source` should list only the application packages being tested, not the repo root. Including test files and tooling in coverage measurement inflates the total lines denominator without contributing meaningful coverage data. For Django projects with a non-standard layout (app code in `apps/` rather than a single top-level package), list each package directory explicitly.
+
 ## Superseded / Semi-Obsolete
 
 ### pandas >=2.2.3 and openpyxl ==3.1.2

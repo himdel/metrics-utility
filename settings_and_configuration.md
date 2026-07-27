@@ -455,6 +455,18 @@
 - **What happened**: The `tools/dev.sh` script was updated to support a `--init` flag. When passed, it runs `manage.py migrate`, creates an `admin/admin` superuser via `createsuperuser --noinput`, and then explicitly sets the password to `admin` via a `manage.py shell` command (because `createsuperuser --noinput` with `DJANGO_SUPERUSER_PASSWORD` sometimes doesn't set it correctly). The `2>/dev/null || true` on the createsuperuser call makes it idempotent (succeeds even if the user already exists). Without `--init`, the script prints a hint about the flag instead of the previous `echo SKIPPED: $MANAGE migrate` message.
 - **Insight**: A `--init` flag for the dev script provides a one-command bootstrap (`./tools/dev.sh --init`) that handles the common "I just cloned the repo, how do I start?" scenario. Making it a flag (rather than always running) avoids unnecessary migration and user-creation overhead on subsequent runs.
 
+### Controller retention default flipped from opt-in to default-on
+- **Repo**: ansible/metrics-service
+- **Commits**: 5017a78 (#363)
+- **What happened**: The `USE_CONTROLLER_RETENTION` setting in `DASHBOARD_COLLECTION` was changed from `False` to `True` in `apps/settings/defaults.py`. The fallback default in `_use_controller_retention()` (in `apps/dashboard_reports/tasks.py`) was also changed from `False` to `True`: `dashboard_cfg.get("USE_CONTROLLER_RETENTION", True)`. Dashboard retention now derives from Controller's `cleanup_jobs` schedule by default instead of using the hardcoded 90-day `DEFAULT_RETENTION_DAYS` constant.
+- **Insight**: When an opt-in setting has been validated in production and the static fallback is no longer the preferred behavior, flip the default. Both the `defaults.py` setting and the code-level fallback must be updated in lockstep -- if only one is changed, the other provides a stale default on a different code path. **Supersedes** the opt-in default from #340.
+
+### SEGMENT_URL setting for mock/test Segment server redirection
+- **Repo**: ansible/metrics-service
+- **Commits**: a2ee264 (#366)
+- **What happened**: A new `SEGMENT_URL` setting was added to `apps/tasks/settings.py`, reading from the `MOCK_SEGMENT_URL` environment variable. The `StorageSegment` constructor in `send_anonymized_to_segment.py` now accepts `host=getattr(settings, "SEGMENT_URL", "") or None`, which redirects Segment API calls to a mock server when set, or uses the default Segment endpoint when `None`. The `or None` coercion ensures an empty string (unset env var) falls back to the SDK default rather than sending to an empty host.
+- **Insight**: For external service integrations, a URL override setting (read from env var) allows redirecting traffic to a mock server in CI/test without code changes. The `getattr(settings, ..., "") or None` pattern safely handles the three cases: setting present (use it), setting empty string (fall back to default), setting absent (fall back to default).
+
 ## Superseded / Semi-Obsolete
 
 ### Database defaults to SQLite for development

@@ -377,6 +377,12 @@
 - **What happened**: Several test files that had not been updated when `cleanup_glob` was extracted to `test/util.py` in #448 were brought into alignment. (1) `test_from_gather_to_json.py` replaced ad-hoc `shutil.rmtree` cleanup with the shared `cleanup_glob` helper, and zero-padded month/day in output paths for consistency. (2) `test_gather_jobs_events_summaries_service.py` switched to shared `cleanup_glob`. (3) `test_json.py` had a no-op `cleanup_glob` fixture (only cleaned before tests, not after) removed. (4) `test_report_splitting.py` had missing cleanup added. (5) Several test files had commented-out after-cleanup in `cleanup_test_data` fixtures fixed (the `yield` was missing, so cleanup after test ran before the test). Overall reduced cleanup boilerplate from ~68 lines to ~29 lines across 7 test files.
 - **Insight**: When introducing a shared test utility, audit ALL test files in the same pass rather than fixing only the ones you're actively working on -- outlier fixtures with ad-hoc cleanup or missing `yield` in cleanup fixtures silently accumulate directory cruft.
 
+### Segment integration test with Go mock server
+- **Repo**: ansible/metrics-service
+- **Commits**: a2ee264 (#366)
+- **What happened**: A new `tests/integration/test_segment_integration.py` file was added with a `TestSegmentIntegration` class. The tests exercise `send_to_segment` and `send_anonymized_to_segment` end-to-end against the Go mock server (started in CI via `MOCK_SEGMENT_URL`). The test creates a task with realistic `task_data` (anonymized rollup payload), runs the collector function, then verifies the mock server received the expected events via its `/events` inspection endpoint. The `@pytest.mark.skipif(not settings.SEGMENT_URL)` decorator skips the tests when the mock server isn't available (local dev without the mock running).
+- **Insight**: Integration tests against external service SDKs (like Segment's `analytics-python`) should use a purpose-built mock server rather than mocking the SDK internals. This catches issues that unit-level mocks miss: serialization bugs, batch size limits, SDK configuration (like `sync_mode`), and HTTP-level failures. The `skipif` pattern based on the service URL setting keeps the tests from failing in environments where the mock isn't set up.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py
