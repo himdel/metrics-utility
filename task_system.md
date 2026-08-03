@@ -73,10 +73,11 @@
 - **What happened**: The `CronTaskScheduler` was renamed to `UnifiedTaskScheduler` and extended to handle both task group definitions (cron-scheduled) and ad-hoc database tasks (immediate, scheduled, recurring). The simple scheduler module was removed. The unified scheduler uses APScheduler for cron triggers and `DateTrigger` for one-time scheduled tasks, plus periodic DB polling (configurable `check_interval`, default 30s) to discover new tasks. A `_db_task_jobs` dict tracks task_id -> job_id mappings to avoid re-scheduling already-tracked tasks. The scheduler was moved to run as a separate process from the Django runserver because Django signals don't work across process boundaries.
 - **Insight**: Unifying task group scheduling and database task scheduling into one component eliminates the dual-scheduler complexity, but introduces a hybrid approach: cron-based for known tasks, polling-based for ad-hoc DB tasks. The polling is necessary because when the scheduler runs in a separate process, Django's `post_save` signals on the Task model are invisible to it.
 
-### Task.retry() method added with intentionally preserved attempt counter
+### Task.retry() method added with intentionally preserved attempt counter (redesigned in #355)
 - **Commits**: 7b39f53 (#56)
 - **What happened**: A `retry()` method was added to the Task model that resets a failed task's status to "pending" without resetting `self.attempts`. The code has an explicit comment: "Do NOT reset attempts to 0 here. The attempts counter must persist across retries to properly enforce the max_attempts limit." The method also attempts to submit the task directly to dispatcherd for immediate execution.
 - **Insight**: The decision to preserve the attempts counter across manual retries prevents users from bypassing `max_attempts` by calling `retry()` in a loop. This is a security/reliability design choice documented via code comments.
+- **Updated**: In d10a9fc (#355), `retry()` was redesigned as a pure atomic state writer using `queryset.filter(status="failed").update()`. It no longer calls `submit_task_to_dispatcher` inline. A `force` parameter was added to bypass `max_attempts` check (still requires `status="failed"`).
 
 ### METRICS_UTILITY_AVAILABLE flag with fallback attributes for testing
 - **Commits**: 7b39f53 (#56)
@@ -143,10 +144,11 @@
 - **What happened**: `UnifiedTaskScheduler._execute_scheduled_task()` changed from `submit_task(f"apps.tasks.tasks.{function_name}", ...)` (string reference) to `submit_task(TASK_FUNCTIONS[function_name], ...)` (registered callable). Tests updated to assert the callable is passed rather than a string path.
 - **Insight**: The original string-based submission (`"apps.tasks.tasks.hello_world"`) assumed dispatcherd would resolve the string to a callable via import, but `submit_task` actually expects a callable directly. Passing the registered callable from `TASK_FUNCTIONS` is both correct and more efficient (no runtime import resolution). This aligns the scheduler's behavior with how `execute_db_task` already worked.
 
-### Auto-retry for failed tasks added to execute_db_task
+### Auto-retry for failed tasks added to execute_db_task (superseded by #355)
 - **Commits**: 3ee3923 (#154)
 - **What happened**: After `execute_db_task()` finishes with `status == "failed"`, it now checks `task.can_retry()` (which compares `task.attempts` against `task.max_attempts`). If retryable, the task is refreshed from DB, logged as "Auto-retrying", and `task.retry()` is called (which resets status to "pending" and re-submits to dispatcherd). The change is just 6 lines in `tasks_system.py`.
 - **Insight**: This closes the gap where failed tasks required manual intervention to retry. The `task.retry()` method (added earlier in #56) already existed but was never called automatically. Combined with the preserved attempt counter (also from #56), this creates bounded automatic recovery: tasks retry up to `max_attempts` times, then stay in "failed" for manual investigation. The pattern is idempotent-safe because the attempt counter persists across retries.
+- **Superseded**: In d10a9fc (#355), the inline `_schedule_retry()` call was removed from `execute_claimed()`. Retry is now handled by the scheduler's `_retry_failed_tasks()` in the 30s periodic sync.
 
 ### Scheduled task execution refactored to be fully DB-driven
 - **Commits**: 520fd11 (#155)
@@ -312,6 +314,18 @@
 ### String-based task submission in UnifiedTaskScheduler
 - `submit_task(f"apps.tasks.tasks.{function_name}", ...)` was changed to `submit_task(TASK_FUNCTIONS[function_name], ...)` in 3de90fc (#153). Then the entire direct-submit approach was replaced in 520fd11 (#155) by routing through `_execute_database_task()`.
 
+### Auto-retry for failed tasks in execute_db_task (inline retry at execution time)
+- **Repo**: ansible/metrics-service
+- Superseded by d10a9fc (#355). The inline `_schedule_retry()` call after `execute_claimed()` in `execute_db_task` was removed. Retry is now handled by the scheduler's `_retry_failed_tasks()` in the 30-second periodic sync, not at execution time. See "Retry moved from execution-time to scheduler periodic sync" in the main section.
+
+### Task.retry() with inline submit_task_to_dispatcher call
+- **Repo**: ansible/metrics-service
+- Superseded by d10a9fc (#355). `Task.retry()` was redesigned from an in-memory check + save + inline submit to a pure atomic conditional update. It no longer calls `submit_task_to_dispatcher` -- the scheduler handles submission. A `force` parameter was added for CLI/API use.
+
+### submit_task_to_dispatcher setting task.status = "failed" on error
+- **Repo**: ansible/metrics-service
+- Superseded by d10a9fc (#355). `submit_task_to_dispatcher` no longer catches exceptions or modifies task status. It raises on failure, and callers handle the error. This eliminates the stale-save race where the function's `task.save()` could overwrite concurrent atomic updates (originally fixed with `update_fields` in #187).
+
 ### Celery .gitignore entries (celerybeat-schedule, celerybeat.pid)
 - **Repo**: ansible/metrics-service
 - Removed in 75c71b1 (#346). The last remaining Celery references in the codebase -- four lines in `.gitignore` for `celerybeat-schedule` and `celerybeat.pid`. Celery was never used in metrics-service (the project started with a custom scheduler and later adopted dispatcherd), so these were leftover from the initial project template.
@@ -388,6 +402,12 @@
 - **Commits**: 69abb56 (#301)
 - **What happened**: The `daily_anonymize_and_prepare` task in `ANONYMIZATION_GROUP` regained `"max_attempts": SEGMENT_MAX_ATTEMPTS` (7). This was previously removed in #276 because it was incorrectly applied (the task is local-only, doesn't interact with Segment). However, `daily_anonymize_and_prepare` feeds into `send_to_segment`, and if it fails, the pipeline stalls. The extended retry window ensures transient DB errors during anonymization don't block the Segment delivery chain.
 - **Insight**: Retry budget decisions should consider the downstream pipeline impact, not just the individual task's external dependencies. A DB-only task that gates an external-service task may warrant more retries than a standalone DB-only task.
+
+### Retry moved from execution-time to scheduler periodic sync; retry() made a pure atomic state writer
+- **Repo**: ansible/metrics-service
+- **Commits**: d10a9fc (#355)
+- **What happened**: A comprehensive refactoring of the task retry and submission architecture. Key changes: (1) **Retry timing**: `_schedule_retry()` was removed from `execute_claimed()` (execution-time inline retry) and instead called from a new `_retry_failed_tasks()` method in the scheduler's 30-second `_periodic_database_sync` loop. The scheduler queries for `status="failed"` tasks with `attempts < max_attempts` (excluding cron tasks) and retries them. (2) **Task.retry() redesigned**: Changed from an in-memory check + save + inline submit to a pure atomic conditional update using `queryset.filter(status="failed").update(...)`. The method no longer calls `submit_task_to_dispatcher` -- it just sets state. A `force` parameter was added to bypass the `max_attempts` check while still requiring `status="failed"`. The in-memory fields are updated after the atomic DB update for caller convenience. (3) **submit_task_to_dispatcher simplified**: The try/except that caught submission failures and set `task.status = "failed"` was removed. The function now raises on failure, and callers (`_execute_database_task`) handle errors with a warning log. This eliminates the stale-save race documented in #187. (4) **update_task_status hardened**: Passing `status="running"` now raises ValueError -- only `_claim_task` is allowed to transition to running (it does so atomically with attempt increment). (5) **API and CLI consolidated**: Both the REST endpoint and the CLI `retry` command now call `task.retry()` directly instead of manually setting fields. The CLI gained `--force` to bypass max_attempts. (6) **_schedule_retry simplified**: Removed the redundant double `can_retry()` check (before and after `refresh_from_db`) and the redundant `refresh_from_db` call. The atomic `retry()` method handles races regardless.
+- **Insight**: Moving retry from execution-time to the scheduler's periodic sync has three benefits: (a) retry timing is controlled by the scheduler, not the worker that just failed, (b) the scheduler can batch retry decisions across all failed tasks, and (c) the worker process is freed immediately after failure without blocking on retry delay. Making `retry()` a pure state writer (no side effects, no inline submission) follows the single-responsibility principle -- the scheduler decides when to submit, `retry()` just resets state. The atomic conditional update (`filter(status="failed").update(...)`) prevents the race where two concurrent retries both succeed and double-submit.
 
 ### System task field protection expanded: name, status, task_data blocked alongside existing protected fields
 - **Repo**: ansible/metrics-service

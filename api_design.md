@@ -158,6 +158,12 @@
 - **What happened**: Dashboard report filter sets (saved report configurations) had a per-user unique constraint on `name` enforced at the DB level, but no serializer-level validation. Users saving a report with a duplicate name got an opaque 500 error (IntegrityError) instead of a 400 with a clear message. A `validate()` method was added to `FilterSetSerializer` that checks `FilterSet.objects.filter(user=user, name=name)` (excluding the current instance on update). The viewset's `update()` and `partial_update()` were also refactored into a single `perform_update()` method with `IntegrityError` -> `ValidationError` conversion for race conditions. A `_clear_other_defaults()` helper consolidates the is_default toggle logic that was duplicated across create/update/partial_update.
 - **Insight**: Always validate uniqueness constraints at the serializer level before they hit the DB -- the serializer error gives a user-friendly message and correct HTTP 400 status, while the DB constraint is a safety net for race conditions (caught via `IntegrityError` -> `ValidationError` conversion).
 
+### Time saved (ROI) ordering and CSV export column added
+- **Repo**: ansible/metrics-service
+- **Commits**: 62f947e (#371), 3124c3d (#374)
+- **What happened**: Two related ROI feature gaps were fixed. PR #371 added `time_savings` to the `ordering_fields` whitelist on `DashboardReportViewSet`, enabling API consumers to sort by the time saved column (computed as `manual_time - elapsed - creation_time`). PR #374 added the missing "Time Saved (hours)" column to the CSV summary export, computed as `round(time_savings / 3600, 2)`. Both changes updated the OpenAPI schema. Tests cover ascending/descending ordering and verify the computed CSV value matches expected calculations.
+- **Insight**: When adding a computed field to the API response (like `time_savings`), ensure it is also added to `ordering_fields` for sorting and to all export formats (CSV, PDF). These are easy to miss because the field appears correctly in list responses without being sortable or exportable -- the omission is only noticed when users try to sort or download.
+
 ### DAB-provided views hardened with class-attribute permission patching at app startup
 - **Repo**: ansible/metrics-service
 - **Commits**: bb9b374 (#357)

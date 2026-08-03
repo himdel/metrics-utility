@@ -275,11 +275,11 @@
 - **What happened**: The `metrics-utility` dependency lower bound was bumped from `>=0.7.x` to `>=0.8.0` because metrics-utility 0.8.0 removed the `salt` parameter from `anonymize_rollups()` (ansible/metrics-utility#399). The service's devel branch had already stopped passing `salt=` (#215), but the dep spec still allowed installing 0.7.x which requires the salt parameter. This ensures only the salt-free version is accepted.
 - **Insight**: When a library removes a parameter from its API, the service-side dep spec must be bumped to reject the old version -- otherwise the lockfile could resolve to an incompatible release. The 0.7/2.7 maintenance branch uses the salt param consistently, so this bump only affects devel/main.
 
-### pyasn1 pinned with compatible-release operator after initial >= mistake
+### pyasn1 pin added and fully reverted in same day
 - **Repo**: ansible/metrics-service
-- **Commits**: 56267e9 (#368), 65c02c8 (#369)
-- **What happened**: PR #368 added `"pyasn1>=0.6.4"` to `pyproject.toml` dependencies to address a transitive dependency issue. PR #369 (same day follow-up) corrected the version specifier from `>=0.6.4` to `~=0.6.4` (PEP 440 compatible release). The `>=` operator would allow pyasn1 1.0+ which could introduce breaking changes; `~=0.6.4` constrains to `>=0.6.4, <0.7.0`, staying on the 0.6.x line.
-- **Insight**: Use `~=` (compatible release) rather than `>=` when pinning a dependency to a specific minor line. `>=0.6.4` is dangerously permissive for pre-1.0 packages where minor versions can contain breaking changes. The two-PR sequence (add then fix) is a common pattern when the initial version specifier isn't reviewed carefully. For pre-1.0 packages, `~=0.X.Y` is almost always the right choice.
+- **Commits**: 56267e9 (#368), 65c02c8 (#369), ffc33e3 (#372), 0ed252a (#373)
+- **What happened**: PR #368 added `"pyasn1>=0.6.4"` to `pyproject.toml` to address a transient dependency issue (AAP-83755). PR #369 (same day) corrected the specifier to `~=0.6.4`. Both were reverted on the same day: #372 reverted the `~=` pin back to `>=`, then #373 removed the pyasn1 dependency line entirely. The fix was ultimately unnecessary or caused other issues.
+- **Insight**: Explicit pinning of transitive dependencies can introduce unexpected constraints or conflicts. When a transitive dependency issue is reported, verify the fix doesn't break other resolution paths before merging. The four-PR churn (add, fix specifier, revert fix, revert add) in a single day shows the cost of iterating on dependency pins in production.
 
 ### Coverage source narrowed from repo root to specific packages
 - **Repo**: ansible/metrics-service
@@ -378,3 +378,9 @@
 - **Commits**: 56fb4e5 (#336)
 - **What happened**: `pyjwt==2.13.0` was added as an explicit exact-version pin in `pyproject.toml` (previously it was a transitive dependency via DAB). This is a security-motivated bump from 2.10.1 to 2.13.0 under AAP-78015. Unlike most dependencies which use range specifiers (`>=`), this uses an exact pin (`==`) reflecting the security requirement to control the exact JWT library version.
 - **Insight**: Security-sensitive authentication libraries (JWT, crypto) should be pinned to exact versions rather than ranges, even when they arrive transitively, to ensure the specific patched version is always used and prevent accidental downgrades.
+
+### Ruff bumped from >=0.9.2 to >=0.16.0, pre-commit hook aligned
+- **Repo**: ansible/metrics-utility
+- **Commits**: fe82be1 (#506)
+- **What happened**: The ruff dev dependency was bumped from `>=0.9.2` to `>=0.16.0` in `pyproject.toml`, and the pre-commit hook was updated from `v0.15.4` to `v0.16.0`. The CI workflow was changed from `uvx ruff check` (which fetches the latest ruff from PyPI, potentially differing from local) to `uv run ruff check` (uses the version locked in `uv.lock`). This ensures developers and CI use the same ruff version.
+- **Insight**: Use `uv run ruff` (locked version) instead of `uvx ruff` (latest from PyPI) in CI to prevent version skew between local development and CI. When ruff adds new default rules across versions, `uvx ruff` in CI could fail on code that passes locally with an older locked version.

@@ -37,9 +37,9 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | c7f6c6c | 2026-07-24 | CI - add mock segment server to pytest-service job (#500) |
-| metrics-service | 65c02c8 | 2026-07-24 | AAP-83755 - fix: pin pyasn1 to ~=0.6.4 instead of >=0.6.4 (#369) |
-| awx | 64dc097914 | 2026-07-22 | [AAP-82221] Add member_organization to specialized Organization *Admin roles (#16545) |
+| metrics-utility | 6109745 | 2026-07-30 | AAP-75313 | feat: segment size up + calculate header size (#510) |
+| metrics-service | d10a9fc6 | 2026-08-02 | Scheduler - retry failed tasks (#355) |
+| awx | bee4470fb9 | 2026-07-31 | fix: prefer scm_revision as the cache_id if available (#16564) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
