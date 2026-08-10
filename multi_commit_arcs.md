@@ -251,8 +251,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### `anonymize_rollups()` signature evolution
 - **Files**: metrics_utility.md
-- **Evolution**: basic positional params (#239) -> `feature_flags_rollup` added as positional (#357) -> changed to keyword-only (#362) -> `salt` removed (#399) -> `task_executions_rollup` added as keyword-only (#399)
-- **PRs**: 4 (#357, #362, #399, plus original #239)
+- **Evolution**: basic positional params (#239) -> `feature_flags_rollup` added as positional (#357) -> changed to keyword-only (#362) -> `salt` removed (#399) -> `task_executions_rollup` added as keyword-only (#399) -> `**kwargs` added for forwards compatibility (#513)
+- **PRs**: 5 (#357, #362, #399, #513, plus original #239)
 
 ### Library/CLI collector split
 - **Files**: architecture.md, metrics_utility.md
@@ -344,7 +344,32 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Evolution**: inferred task outcomes (success, failed with retries, skipped, ignored) via event sequence analysis (original) -> direct 1-to-1 event type counters (runner_on_ok_total, runner_on_failed_total, etc.) with no task-outcome inference (#480). Old task-level columns removed: task_ok_total, task_ok_with_retries_total, task_failed_total, task_unreachable_total, task_skipped_total, task_failed_and_ignored_total. New columns added: runner_on_async_ok_total, runner_on_async_failed_total, runner_item_on_ok_total, runner_item_on_failed_total, runner_retry_total, ignore_errors_total, event_data_size_total. unique_hosts_total removed for performance. playbook_on_stats removed (high volume, redundant).
 - **PRs**: 1 (#480) -- major reshape in single PR
 
+### NULL host_id in job_host_summary: fix and immediate revert
+- **Files**: bugs_and_pitfalls.md, metrics_collection.md
+- **Evolution**: NULL host_id causes silent JOIN failure on SaaS (#532) -> name-based fallback JOIN added -> reverted 2 days later (#533), likely due to many-to-many match risk or performance concerns
+- **PRs**: 2 (#532, #533)
+
+### host_metric SQL parameterization
+- **Files**: metrics_collection.md, bugs_and_pitfalls.md
+- **Evolution**: f-string SQL interpolation with CONCAT-based keyset pagination (original) -> parameterized queries with multi-column keyset comparison, method returns (query, params) tuple (#530)
+- **PRs**: 1 (#530) -- security hardening requested by controller team (AAP-85766)
+
 ### S3-compatible dev/CI storage
 - **Files**: docker_and_deployment.md
 - **Evolution**: MinIO with separate mc init container for bucket/user/key creation (original) -> SeaweedFS with zero-setup env-var-only config (#488)
 - **PRs**: 1 (#488)
+
+### AWX label dedup: fix, revert, replace
+- **Files**: metrics_service.md, bugs_and_pitfalls.md
+- **Evolution**: Labels showed duplicates because AWX labels are org-scoped (unique by name+org). Fix #387 used `GROUP BY name / MIN(id)` to collapse "duplicates" -> reverted next day in #390 because it destroyed legitimate per-org labels -> replacement fix #389 joins main_organization and disambiguates by appending org name only to labels whose name occurs more than once, preserving all distinct labels
+- **PRs**: 3 (#387, #390, #389)
+
+### Dashboard data consistency: card counts and workflow child exclusion
+- **Files**: metrics_service.md, bugs_and_pitfalls.md, metrics_collection.md
+- **Evolution**: Card counts (total/successful/failed) disagreed with job listing because they were computed from `_build_aggregated_queryset()` which filters out jobs without template_metadata -> fixed in #386 by computing card counts directly on filtered_qs. Separately, workflow child jobs (`launch_type='workflow'`) had NULL launched_by_id, inflating card counts without appearing in Top 5 Users -> batch collector fixed in m-u #525, hourly sync hook fixed independently in m-s #388 by extending the `isin` filter. Both fixes part of the same AAP-74848/AAP-85129 cluster.
+- **PRs**: 2 m-s (#386, #388) + 1 m-u (#525)
+
+### Dependabot grouping (cross-repo)
+- **Files**: ci_cd.md
+- **Evolution**: Individual dependabot PRs per dependency bump (original) -> m-u added `groups: monthly-batch: patterns: ['*']` for github-actions, uv, gomod, docker ecosystems (#512) -> m-s added same pattern for github-actions and uv ecosystems (#376)
+- **PRs**: 2 (m-u #512, m-s #376)

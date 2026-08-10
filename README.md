@@ -37,9 +37,9 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 6109745 | 2026-07-30 | AAP-75313 | feat: segment size up + calculate header size (#510) |
-| metrics-service | d10a9fc6 | 2026-08-02 | Scheduler - retry failed tasks (#355) |
-| awx | bee4470fb9 | 2026-07-31 | fix: prefer scm_revision as the cache_id if available (#16564) |
+| metrics-utility | b11fd5a | 2026-08-07 | Revert "fix: handle NULL host_id in job_host_summary SQL collector (#532)" (#533) |
+| metrics-service | d3ce5e63 | 2026-08-04 | fix: disambiguate duplicate label names by organization instead of dedup (#389) |
+| awx | 3f04ed4707 | 2026-08-03 | [AAP-82668] Skip old RBAC sync on cascade-deleted assignments (#16559) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
