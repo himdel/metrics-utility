@@ -373,3 +373,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: ci_cd.md
 - **Evolution**: Individual dependabot PRs per dependency bump (original) -> m-u added `groups: monthly-batch: patterns: ['*']` for github-actions, uv, gomod, docker ecosystems (#512) -> m-s added same pattern for github-actions and uv ecosystems (#376)
 - **PRs**: 2 (m-u #512, m-s #376)
+
+### sync-openapi-specs workflow (three-iteration fix)
+- **Files**: ci_cd.md
+- **Evolution**: the cross-repo OpenAPI spec-sync workflow added in #196 never ran. #394 made the generator work headless (correct `metrics_service.settings` module, `METRICS_SERVICE_` Dynaconf env vars, per-db SQLite so no Postgres, flat `metrics.json` output, versioned-branch targeting) and split it into generate + sync jobs -> #396 aligned it to the eng handbook drift-detection standard (artifact `openapi-schema`, `component-spec/` path, `diff -q` instead of `git diff`, `OPENAPI_SPEC_SYNC_TOKEN` secret, short-SHA branches, handbook PR template) and fixed a critical shell-injection by routing all `github.*` context through step `env` vars -> #397 added GPG signing with the shared `aap-api-bot` key for verified downstream commits (matching the Controller pattern).
+- **PRs**: 3 (#394, #396, #397), following broken #196
