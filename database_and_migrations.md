@@ -128,6 +128,18 @@
 - **What happened**: The `member_organization` permission was added to six specialized Organization *Admin role definitions (Project, Credential, Inventory, NotificationTemplate, WorkflowJobTemplate, ExecutionEnvironment). Instead of a numbered migration, the fix modifies the `_dab_rbac.py` migration helper and connects `setup_managed_role_definitions` to the `dab_post_migrate` signal in `apps.py`, so existing installs get the fix applied automatically on upgrade. A new setting `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER = True` was also added. No schema changes -- this only affects data in DAB RBAC permission/role definition tables, none of which are in our dependent tables.
 - **Insight**: AWX is shifting toward post-migrate signal handlers for RBAC definition sync rather than numbered migrations. This pattern means role definition changes won't appear as numbered migrations in the migration chain, but will be applied on every startup. Our collectors are unaffected since we don't read from DAB RBAC tables.
 
+### AWX migration 0206 made idempotent: AddIndex wrapped in SeparateDatabaseAndState + CREATE INDEX IF NOT EXISTS
+- **Repo**: ansible/awx
+- **Commits**: d759ff160e (#16585)
+- **What happened**: Migration `0206_jobhostsummary_host_id_idx.py` (originally added in 41545cfcf0 #16530) used a plain `migrations.AddIndex` for the `main_jobhostsumm_host_id_desc` composite index on `main_jobhostsummary(host_id, id DESC)`. That fails during upgrade if the index already exists -- customers on 2.6 may have created it manually via `awx-manage create_host_summary_index` (AAP-87549) or a KCS raw-SQL workaround, so the upgrade errored with `relation "main_jobhostsumm_host_id_desc" already exists`. The fix wraps the operation in `migrations.SeparateDatabaseAndState`: the `database_operations` run `RunSQL("CREATE INDEX IF NOT EXISTS ... ON main_jobhostsummary (host_id, id DESC)")` (with `DROP INDEX IF EXISTS` reverse), while `state_operations` keep the original `AddIndex` so Django's model state stays consistent. Forward-port of tower#7895 (stable-2.7).
+- **Insight**: This affects `main_jobhostsummary`, one of our dependent tables, but only the migration mechanics -- no column, type, or constraint change; the index name and shape are identical to #16530. The pattern to remember: when a schema object may already exist on some upgrade paths, wrap the migration in `SeparateDatabaseAndState` with idempotent raw SQL (`IF NOT EXISTS`) in `database_operations` and the ORM operation in `state_operations` so Django's migration state stays accurate without re-issuing the failing DDL.
+
+### AWX RBAC cleanup no longer deletes JWT-managed role definitions (no schema change)
+- **Repo**: ansible/awx
+- **Commits**: 693a5820ae (#16590)
+- **What happened**: `setup_managed_role_definitions()` in `awx/main/migrations/_dab_rbac.py` deletes "unexpected" managed `RoleDefinition` rows (those not created by the current setup run). It was also deleting JWT-managed roles such as Platform Auditor, which CASCADE-deleted their user/team assignments. The fix adds `.exclude(name__in=settings.ANSIBLE_BASE_JWT_MANAGED_ROLES)` so JWT-managed roles are preserved during cleanup.
+- **Insight**: Not schema-relevant to our collectors -- this only touches DAB RBAC role-definition/assignment tables, none of which are in our dependent tables list. Noted for completeness only.
+
 ## Superseded / Semi-Obsolete
 
 ### Core app migrations 0004-0010
