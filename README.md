@@ -37,9 +37,9 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | b11fd5a | 2026-08-07 | Revert "fix: handle NULL host_id in job_host_summary SQL collector (#532)" (#533) |
-| metrics-service | d3ce5e63 | 2026-08-04 | fix: disambiguate duplicate label names by organization instead of dedup (#389) |
-| awx | 3f04ed4707 | 2026-08-03 | [AAP-82668] Skip old RBAC sync on cascade-deleted assignments (#16559) |
+| metrics-utility | cc6ae56 | 2026-08-12 | add schema and validation script (#511) |
+| metrics-service | 3fd25af8 | 2026-08-14 | Add architecture documentation for core, tasks, and collectors (#398) |
+| awx | 693a5820ae | 2026-08-14 | fix: do not delete any of the jwt managed roles during cleanup (#16590) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
