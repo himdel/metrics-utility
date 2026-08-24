@@ -122,9 +122,9 @@
 - **What happened**: Migration `0207_alter_skip_tags_to_textfield.py` changes the `skip_tags` column from `CharField(max_length=1024)` to `TextField(blank=True, default='')` on both `main_job` and `main_jobtemplate`. The `max_length` constraint is removed entirely. This was a bug fix -- `job_tags` was already a TextField while `skip_tags` was artificially limited to 1024 characters, causing silent truncation for users with many tags.
 - **Insight**: Both `main_job` and `main_jobtemplate` are in our dependent tables list. At the PostgreSQL level, `CharField` and `TextField` are both stored as `text` -- the only difference is the `CHECK (char_length(skip_tags) <= 1024)` constraint, which this migration drops. No data migration is needed. If our collectors SELECT `skip_tags`, values may now exceed 1024 characters.
 
-### RBAC role definitions updated via post-migrate signal (no numbered migration)
+### RBAC role definitions updated via post-migrate signal (no numbered migration)  [SUPERSEDED — reverted by #16597]
 - **Repo**: ansible/awx
-- **Commits**: 64dc097914 (#16545)
+- **Commits**: 64dc097914 (#16545); reverted by 85891b8d30 (#16597)
 - **What happened**: The `member_organization` permission was added to six specialized Organization *Admin role definitions (Project, Credential, Inventory, NotificationTemplate, WorkflowJobTemplate, ExecutionEnvironment). Instead of a numbered migration, the fix modifies the `_dab_rbac.py` migration helper and connects `setup_managed_role_definitions` to the `dab_post_migrate` signal in `apps.py`, so existing installs get the fix applied automatically on upgrade. A new setting `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER = True` was also added. No schema changes -- this only affects data in DAB RBAC permission/role definition tables, none of which are in our dependent tables.
 - **Insight**: AWX is shifting toward post-migrate signal handlers for RBAC definition sync rather than numbered migrations. This pattern means role definition changes won't appear as numbered migrations in the migration chain, but will be applied on every startup. Our collectors are unaffected since we don't read from DAB RBAC tables.
 
@@ -140,6 +140,24 @@
 - **What happened**: `setup_managed_role_definitions()` in `awx/main/migrations/_dab_rbac.py` deletes "unexpected" managed `RoleDefinition` rows (those not created by the current setup run). It was also deleting JWT-managed roles such as Platform Auditor, which CASCADE-deleted their user/team assignments. The fix adds `.exclude(name__in=settings.ANSIBLE_BASE_JWT_MANAGED_ROLES)` so JWT-managed roles are preserved during cleanup.
 - **Insight**: Not schema-relevant to our collectors -- this only touches DAB RBAC role-definition/assignment tables, none of which are in our dependent tables list. Noted for completeness only.
 
+### AWX migration 0208: data-only fix for system_auditor -> Platform Auditor assignments
+- **Repo**: ansible/awx
+- **Commits**: d6675e67e0 (#16582)
+- **What happened**: Migration `0208_fix_system_auditor_migration.py` is a `RunPython` (reverse = `noop`) data migration that corrects a bug in the earlier `0192` (`migrate_to_new_rbac`) where a stale loop variable (`role.members` instead of `old_system_auditor.members`) meant some old `system_auditor` members never received the new `Platform Auditor` role. The migration reads legacy `Role` members (`singleton_name='system_auditor'`) and creates any missing `RoleUserAssignment` rows for the `Platform Auditor` `RoleDefinition`. It only *adds* missing assignments, never removes. The same commit also fixes the loop-variable bug in `_dab_rbac.py::migrate_to_new_rbac`. No DDL -- no columns, tables, indexes, or constraints created.
+- **Insight**: Pure data migration touching DAB RBAC tables (`RoleUserAssignment`, `RoleDefinition`) and the legacy `main` `Role` model -- none of which are in our dependent tables list. No schema impact on our collectors. Pattern worth noting: corrective data migrations use `RunPython.noop` as the reverse and are written to be additive-only when they can't safely distinguish bug-caused from legitimate rows.
+
+### AWX #16597: revert of member_organization RBAC role-definition change and post-migrate reverse-sync skip
+- **Repo**: ansible/awx
+- **Commits**: 85891b8d30 (#16597)
+- **What happened**: Reverts two prior commits -- 64dc097914 (#16545, which added `member_organization` to six Organization *Admin role definitions via a `dab_post_migrate` signal handler and added the `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER` setting) and 78a55b25ec (#16561, "skip reverse sync during post-migrate role definition setup", which only touched `apps.py`). The revert removes the signal wiring in `apps.py`, the `_dab_rbac.py` changes, the `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER` setting in `defaults.py`, and related tests. No migration files involved -- neither the original changes nor the revert alter DB schema.
+- **Insight**: No schema impact -- all changes are in RBAC role-definition data (DAB tables) and settings, none in our dependent tables. The 64dc097914 learning below is now superseded by this revert. RBAC definition sync via post-migrate signals continues to be an area of churn in AWX; watch for it to be re-applied later.
+
+### AWX #16584: DAB RBAC role-assignment events recorded in activity stream (no schema change)
+- **Repo**: ansible/awx
+- **Commits**: efed57ce8a (#16584)
+- **What happened**: Adds activity-stream recording for new-side DAB RBAC role assignment/unassignment events (`record_role_assignment_activity_stream`), and wraps the legacy-mirroring writes in `rbac.py` / `models/__init__.py` (`sync_members_to_new_rbac`, `sync_parents_to_new_rbac`, `give_creator_permissions`, `user_is_system_auditor` setter) with `disable_activity_stream()` so mirrored writes aren't double-recorded. Changes are confined to `signals.py`, `models/rbac.py`, and `models/__init__.py` -- no migration files, no model field/table changes.
+- **Insight**: Python/signal-only behavior change with no DDL. It writes more rows into `main_activitystream` (RBAC assignment events), but `main_activitystream` is not in our dependent tables list, so none of our collectors are affected.
+
 ## Superseded / Semi-Obsolete
 
 ### Core app migrations 0004-0010
@@ -147,6 +165,10 @@
 
 ### Tasks app migrations 0002-0004
 - The `add_system_task_flag`, `add_task_description`, and `auto_20251125_1020` migrations were folded into a rewritten `0001_initial.py` in 5fb6ead (#73). Then migrations 0002-0008 were squashed again in 0fa64ff (#140) into a new `0001_initial.py`.
+
+### AWX member_organization RBAC role-definition change (64dc097914 / #16545)
+- **Repo**: ansible/awx
+- Reverted by 85891b8d30 (#16597). The post-migrate-signal approach for adding `member_organization` to Organization *Admin role definitions (and the `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER` setting) was backed out. Full entry retained above under "RBAC role definitions updated via post-migrate signal" with the SUPERSEDED marker. No schema impact either way -- DAB RBAC tables only, none in our dependent tables.
 
 ### SELECT 1 probe for dead connection detection before ensure_connection()
 - **Repo**: ansible/metrics-service
