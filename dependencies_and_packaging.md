@@ -305,6 +305,18 @@
 - **What happened**: metrics-utility is bundled beneath metrics-service and pulled into the automation-metrics-service-container build as a submodule, where its `pyproject.toml` is fed to `uv pip compile` alongside metrics-service and django-ansible-base. Hard `==` pins on shared deps constrained that combined resolution and risked forcing overrides/constraints downstream. Exact pins on shared deps were converted to compatible-release (`~=major.minor`) ranges so minor/patch upgrades flow through while major bumps stay capped, letting metrics-service/DAB drive the resolved versions: `boto3`/`botocore` `==1.35.96 -> ~=1.35`, `distro` `==1.9.0 -> ~=1.9`, `django` `==5.2.17 -> ~=5.2` (stays on 5.2 LTS, blocks 6.x), `psycopg` `==3.3.4 -> ~=3.3` (stops fighting downstream `psycopg[c]`), `requests` `==2.34.2 -> ~=2.32`, `openpyxl` `~=3.1.5 -> ~=3.1`. `kubernetes` stayed `>=33.1.0` (downstream resolves 35.x above the floor). uv.lock was regenerated with resolved versions unchanged so standalone installs stay reproducible. The PR also stopped Dependabot from proposing major version bumps.
 - **Insight**: When a library is vendored into a larger combined dependency resolution (submodule fed to `uv pip compile`), exact `==` pins fight the parent's resolver; compatible-release `~=major.minor` ranges let the parent drive resolved versions while still capping major bumps -- and lock files keep standalone installs reproducible.
 
+### Django bumped to 5.2.17 for CVE-2026-15307 (metrics-service side)
+- **Repo**: ansible/metrics-service
+- **Commits**: 1563f10 (#404)
+- **What happened**: The `django` pin in `pyproject.toml` was bumped to `==5.2.17` to pick up the fix for CVE-2026-15307, with `uv.lock` regenerated. Same CVE floor bump was applied in metrics-utility this cycle (4ceba6c #541); metrics-service is the top-level app whose pin drives the container's production resolution, so both had to move. Django stays on the 5.2 LTS line.
+- **Insight**: A CVE floor bump on a shared dependency (Django) must land in both metrics-service (the top-level resolver) and metrics-utility (the vendored submodule) so neither side regresses the floor when their pyproject.toml files are fed together to `uv pip compile`.
+
+### Runtime dependency pins loosened to compatible-release ranges (metrics-service side)
+- **Repo**: ansible/metrics-service
+- **Commits**: 9801c81 (#406)
+- **What happened**: metrics-service is the top-level app installed in the automation-metrics-service-container build; its `pyproject.toml` is a `uv pip compile` source, so its exact `==` pins drive the whole production resolution and force downstream overrides/sed-patching. The three remaining exact pins were converted to compatible-release (`~=`) ranges that floor at the current version: `django ==5.2.17 -> ~=5.2.17` (`>=5.2.17,<5.3`; stays on 5.2 LTS, keeps CVE floor), `urllib3 ==2.7.0 -> ~=2.7` (`>=2.7,<3`), `pyjwt ==2.13.0 -> ~=2.13` (`>=2.13,<3`). All other deps were already `>=` ranges. uv.lock was regenerated with resolved versions unchanged so standalone/dev installs stay reproducible. The PR also added a Dependabot `ignore` rule (`update-types: version-update:semver-major` for `*`) to the uv ecosystem so majors are never auto-proposed. This mirrors the metrics-utility change (8b7f34d #552) applied to the vendored submodule.
+- **Insight**: The top-level container app and its vendored submodule both need compatible-release (`~=major.minor`) pins so forward patch/minor upgrades flow through while major bumps stay deliberate; pairing this with a Dependabot semver-major ignore keeps major upgrades (e.g. Django 5.2 -> 6.x) human-driven rather than automatic monthly batches.
+
 ## Superseded / Semi-Obsolete
 
 ### pandas >=2.2.3 and openpyxl ==3.1.2

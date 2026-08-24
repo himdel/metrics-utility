@@ -360,6 +360,24 @@
 - **What happened**: The `.github/workflows/pytest.yml` workflow gained steps to: (1) clone `ansible/metrics-utility` at `HEAD`, (2) build the Go-based mock Segment server from `metrics-utility/tools/mock-segment-server/`, (3) start it as a background process, and (4) set `MOCK_SEGMENT_URL=http://localhost:8765` as an environment variable for the test run. The mock server receives Segment `track()` calls and stores them in memory for assertion. AWX database credentials in the workflow were also fixed from `127.0.0.1/mypassword` to `localhost/awx/awx` to match the actual test database configuration.
 - **Insight**: Hosting the mock server source in the upstream repo (metrics-utility) and building it at CI time in the downstream repo (metrics-service) keeps the mock implementation in one place while making it available to both repos' CI. The Go binary builds fast enough (~2s) that the CI overhead is minimal. Environment-variable-based service URL injection (`MOCK_SEGMENT_URL`) decouples the test code from the mock's network location.
 
+### sync-openapi-specs reworked to a stable branch (one PR per target) with a review-team notify
+- **Repo**: ansible/metrics-service
+- **Commits**: a2a05e7 (#403)
+- **What happened**: Following the three earlier iterations (#394/#396/#397), the `sync-openapi-specs.yml` "create PR in spec repo" step was reworked again. Instead of a fresh per-commit branch (`update-metrics-${SOURCE_BRANCH}-${SHORT_SHA}`) that opened a new PR every run, it now uses a **stable branch name** `auto/update-metrics-service-${SPEC_BRANCH}` and updates it in place (`git push --force`), checking for an existing open PR via `gh pr list --head ... --base ... --state open` and reusing it — so at most one open PR exists per target branch (stale branches from previously merged PRs are cleaned up with `git push origin --delete`). A new secret `OPENAPI_SPEC_PR_REVIEW_TEAM` names the GitHub team to request review from. Env vars were consolidated (`SPEC_REPO`, `SPEC_BRANCH`, `SOURCE_COMMIT_MESSAGE`) and the PR body built via a heredoc; the commit co-author changed from `aap-api-bot` to `github-actions[bot]`.
+- **Insight**: For a recurring cross-repo auto-sync PR, use a stable per-target-branch head branch updated in place (force-push) rather than a per-commit branch, so reviewers see one continuously-updated PR instead of a pile of stale ones; wire in a review-team secret so the auto-PRs actually get looked at.
+
+### Renovate Tekton postUpgradeTasks disabled so pipeline-migration-tool doesn't block bumps
+- **Repo**: ansible/metrics-service
+- **Commits**: 1ba34f9 (#402)
+- **What happened**: When Renovate/Mintmaker bumped Tekton bundle resources, its post-upgrade `pipeline-migration-tool` task ran against the tekton bundles and failed, blocking CI so the updated pipeline bundles could not merge. The `tekton` block in `renovate.json` was given an empty `postUpgradeTasks: { commands: [] }` to disable that post-upgrade step, letting the bundle-digest updates pass checks and merge.
+- **Insight**: When a Renovate/Mintmaker post-upgrade task (pipeline-migration-tool) fails against Tekton bundles and blocks otherwise-valid digest bumps, override `postUpgradeTasks.commands` to `[]` for the tekton manager to unblock the automated bundle updates.
+
+### Dependabot configured to never propose major version bumps for Python deps
+- **Repo**: ansible/metrics-service
+- **Commits**: 9801c81 (#406)
+- **What happened**: An `ignore` rule (`dependency-name: '*'`, `update-types: ['version-update:semver-major']`) was added to the uv ecosystem in `.github/dependabot.yml`, so Dependabot never opens PRs for semver-major bumps of Python deps. This complements the same PR's move of runtime pins to compatible-release (`~=`) ranges — see the dependencies_and_packaging.md entry.
+- **Insight**: Pair compatible-release runtime pins with a Dependabot semver-major ignore rule so major upgrades (e.g. Django LTS jumps) stay deliberate, human-driven changes rather than automatic monthly-batch PRs.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)
