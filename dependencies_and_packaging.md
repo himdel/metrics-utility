@@ -287,6 +287,24 @@
 - **What happened**: In `pyproject.toml`, the `[tool.coverage.run]` source was changed from `["."]` (entire repo root) to `["apps", "metrics_service"]` (the two actual Python packages). The old config measured coverage for everything in the repo including test files, config scripts, and tools, inflating the denominator and making coverage percentages misleadingly low.
 - **Insight**: Coverage `source` should list only the application packages being tested, not the repo root. Including test files and tooling in coverage measurement inflates the total lines denominator without contributing meaningful coverage data. For Django projects with a non-standard layout (app code in `apps/` rather than a single top-level package), list each package directory explicitly.
 
+### Django bumped to 5.2.17 for CVE-2026-15307
+- **Repo**: ansible/metrics-utility
+- **Commits**: 4ceba6c (#541)
+- **What happened**: The `django` pin in `pyproject.toml` was bumped (from the prior 5.2.x) to `==5.2.17` to pick up the fix for CVE-2026-15307, with `uv.lock` regenerated. Django stays on the 5.2 LTS line.
+- **Insight**: Security bumps within an LTS line are patch-level; keep on the LTS series (5.2.x) rather than jumping majors when the only driver is a CVE fix.
+
+### setuptools runtime pin relaxed from ==80.9.0 to >=80.9.0
+- **Repo**: ansible/metrics-utility
+- **Commits**: 5d246ef (#550)
+- **What happened**: metrics-utility carried an exact `setuptools==80.9.0` runtime dependency. Django 5.2.17's build-system requires `setuptools>=83`, so consumers that build Django from source in a hermetic/offline environment (the automation-metrics-service container) must prefetch setuptools>=83 (e.g. 84.0.0) -- but the exact `==80.9.0` runtime pin then failed to resolve against those wheels. Relaxing to `>=80.9.0` keeps the known-good floor while allowing newer setuptools required by Django, with no functional change. uv.lock resolved version was unchanged for standalone installs.
+- **Insight**: An exact runtime pin on a build-time tool like setuptools can collide with a downstream dependency's build-system requirement in hermetic builds; use a `>=` floor instead so the environment can satisfy both.
+
+### Runtime dependency pins loosened to compatible-release ranges
+- **Repo**: ansible/metrics-utility
+- **Commits**: 8b7f34d (#552)
+- **What happened**: metrics-utility is bundled beneath metrics-service and pulled into the automation-metrics-service-container build as a submodule, where its `pyproject.toml` is fed to `uv pip compile` alongside metrics-service and django-ansible-base. Hard `==` pins on shared deps constrained that combined resolution and risked forcing overrides/constraints downstream. Exact pins on shared deps were converted to compatible-release (`~=major.minor`) ranges so minor/patch upgrades flow through while major bumps stay capped, letting metrics-service/DAB drive the resolved versions: `boto3`/`botocore` `==1.35.96 -> ~=1.35`, `distro` `==1.9.0 -> ~=1.9`, `django` `==5.2.17 -> ~=5.2` (stays on 5.2 LTS, blocks 6.x), `psycopg` `==3.3.4 -> ~=3.3` (stops fighting downstream `psycopg[c]`), `requests` `==2.34.2 -> ~=2.32`, `openpyxl` `~=3.1.5 -> ~=3.1`. `kubernetes` stayed `>=33.1.0` (downstream resolves 35.x above the floor). uv.lock was regenerated with resolved versions unchanged so standalone installs stay reproducible. The PR also stopped Dependabot from proposing major version bumps.
+- **Insight**: When a library is vendored into a larger combined dependency resolution (submodule fed to `uv pip compile`), exact `==` pins fight the parent's resolver; compatible-release `~=major.minor` ranges let the parent drive resolved versions while still capping major bumps -- and lock files keep standalone installs reproducible.
+
 ## Superseded / Semi-Obsolete
 
 ### pandas >=2.2.3 and openpyxl ==3.1.2
@@ -348,6 +366,10 @@
 ### sync-requirements system (script + CI workflow + pre-commit hook)
 - **Repo**: ansible/metrics-service
 - The `sync-requirements.sh` script, `sync-requirements.yml` workflow, and pre-commit hook (from f848024 #24) were all deleted in 531b608 (#129). The production Dockerfile now installs directly from `pyproject.toml`, eliminating the need to bridge uv.lock to pip-format requirements.
+
+### metrics-utility exact `==` pins on shared runtime deps
+- **Repo**: ansible/metrics-utility
+- The exact pins from the "pinned to match AWX requirements" strategy (boto3/botocore, distro, django, psycopg, requests, etc.) were loosened to compatible-release `~=major.minor` ranges in 8b7f34d (#552), and the `setuptools==80.9.0` pin was relaxed to `>=80.9.0` in 5d246ef (#550), so metrics-utility (vendored under metrics-service) no longer over-constrains the combined `uv pip compile` resolution.
 
 ### psycopg[c] and psycopg2 for source builds
 - **Repo**: ansible/metrics-service

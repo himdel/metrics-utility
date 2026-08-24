@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | cc6ae56 | 2026-08-12 | add schema and validation script (#511) |
+| metrics-utility | 8b7f34d | 2026-08-21 | Loosen runtime dependency pins to compatible-release ranges (#552) |
 | metrics-service | 3fd25af8 | 2026-08-14 | Add architecture documentation for core, tasks, and collectors (#398) |
 | awx | 693a5820ae | 2026-08-14 | fix: do not delete any of the jwt managed roles during cleanup (#16590) |
 
