@@ -37,9 +37,9 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 8b7f34d | 2026-08-21 | Loosen runtime dependency pins to compatible-release ranges (#552) |
-| metrics-service | 9801c811 | 2026-08-21 | chore: loosen runtime dependency pins to compatible-release ranges (#406) |
-| awx | efed57ce8a | 2026-08-24 | AAP-82996 Record DAB RBAC role assignment events in the activity stream (#16584) |
+| metrics-utility | 15f5fb1 | 2026-08-27 | bump sqlparse to >=0.6.0 (#564) |
+| metrics-service | 96580367 | 2026-08-27 | bump sqlparse to >=0.6.0 (#417) |
+| awx | b980d60e99 | 2026-08-28 | AAP-66689 - Fix JT admins unable to toggle ask_*_on_launch fields without project_inventory access (#16623) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

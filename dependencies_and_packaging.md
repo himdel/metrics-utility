@@ -317,6 +317,18 @@
 - **What happened**: metrics-service is the top-level app installed in the automation-metrics-service-container build; its `pyproject.toml` is a `uv pip compile` source, so its exact `==` pins drive the whole production resolution and force downstream overrides/sed-patching. The three remaining exact pins were converted to compatible-release (`~=`) ranges that floor at the current version: `django ==5.2.17 -> ~=5.2.17` (`>=5.2.17,<5.3`; stays on 5.2 LTS, keeps CVE floor), `urllib3 ==2.7.0 -> ~=2.7` (`>=2.7,<3`), `pyjwt ==2.13.0 -> ~=2.13` (`>=2.13,<3`). All other deps were already `>=` ranges. uv.lock was regenerated with resolved versions unchanged so standalone/dev installs stay reproducible. The PR also added a Dependabot `ignore` rule (`update-types: version-update:semver-major` for `*`) to the uv ecosystem so majors are never auto-proposed. This mirrors the metrics-utility change (8b7f34d #552) applied to the vendored submodule.
 - **Insight**: The top-level container app and its vendored submodule both need compatible-release (`~=major.minor`) pins so forward patch/minor upgrades flow through while major bumps stay deliberate; pairing this with a Dependabot semver-major ignore keeps major upgrades (e.g. Django 5.2 -> 6.x) human-driven rather than automatic monthly batches.
 
+### sqlparse bumped to >=0.6.0 for three CVEs
+- **Repo**: ansible/metrics-utility
+- **Commits**: 15f5fb1 (#564)
+- **What happened**: `sqlparse` (a transitive dependency) was re-resolved from 0.5.5 to 0.6.0 in `uv.lock` via `uv lock --upgrade-package sqlparse` to pick up fixes for CVE-2026-54284, CVE-2026-59893, and CVE-2026-71491 (AAP-89829), all fixed in 0.6.0. Lockfile-only change (three lines).
+- **Insight**: A transitive dependency with a security floor can be forced forward with a targeted `uv lock --upgrade-package <name>` without touching pyproject.toml, keeping the rest of the resolution stable.
+
+### sqlparse bumped to >=0.6.0 for three CVEs (metrics-service side)
+- **Repo**: ansible/metrics-service
+- **Commits**: 9658036 (#417)
+- **What happened**: Same AAP-89829 CVE remediation applied to the top-level app: `sqlparse` was re-resolved from 0.5.3 to 0.6.0 in `uv.lock` via `uv lock --upgrade-package sqlparse` (fixes for CVE-2026-54284, CVE-2026-59893, CVE-2026-71491). Lockfile-only change (three lines); `pyproject.toml` untouched. Parallels the metrics-utility bump (15f5fb1 #564); note the two repos started from different resolved versions (m-s 0.5.3, m-u 0.5.5) but converge on 0.6.0.
+- **Insight**: A transitive-dependency CVE floor has to be forced forward independently in each repo's own lockfile (the top-level app and the vendored submodule resolve separately), even though the target version and remediation command are identical.
+
 ## Superseded / Semi-Obsolete
 
 ### pandas >=2.2.3 and openpyxl ==3.1.2
