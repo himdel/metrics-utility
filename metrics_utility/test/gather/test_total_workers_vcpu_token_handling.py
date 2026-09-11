@@ -46,9 +46,10 @@ class TestTokenAndCertificateHandling:
             mock_get.return_value = ['total_workers_vcpu']
             mock_exists.return_value = False  # Token file doesn't exist
 
+            output = DictOutput()
             with temporary_env(METERING_ENV):
                 with pytest.raises(MetricsException, match=re.escape(f'Service account token not found at {K8S_TOKEN_PATH}')):
-                    cli_total_workers_vcpu(None, None, DictOutput())
+                    cli_total_workers_vcpu(None, None, output)
 
     def test_missing_ca_cert_file_raises_exception(self):
         """Test that missing CA cert file raises MetricsException."""
@@ -61,9 +62,10 @@ class TestTokenAndCertificateHandling:
             # Token exists but CA cert doesn't
             mock_exists.side_effect = lambda path: 'token' in path
 
+            output = DictOutput()
             with temporary_env(METERING_ENV):
                 with pytest.raises(MetricsException, match=re.escape(f'CA_CERT not found at {K8S_CA_CERT_PATH}')):
-                    cli_total_workers_vcpu(None, None, DictOutput())
+                    cli_total_workers_vcpu(None, None, output)
 
     def test_empty_token_file_raises_exception(self):
         """Test that empty token file raises MetricsException."""
@@ -75,9 +77,10 @@ class TestTokenAndCertificateHandling:
             mock_get.return_value = ['total_workers_vcpu']
             mock_exists.return_value = True
 
+            output = DictOutput()
             with temporary_env(METERING_ENV):
                 with pytest.raises(MetricsException, match='Unable to retrieve the token'):
-                    cli_total_workers_vcpu(None, None, DictOutput())
+                    cli_total_workers_vcpu(None, None, output)
 
     def test_whitespace_only_token_raises_exception(self):
         """Test that whitespace-only token file raises MetricsException."""
@@ -89,9 +92,10 @@ class TestTokenAndCertificateHandling:
             mock_get.return_value = ['total_workers_vcpu']
             mock_exists.return_value = True
 
+            output = DictOutput()
             with temporary_env(METERING_ENV):
                 with pytest.raises(MetricsException, match='Unable to retrieve the token'):
-                    cli_total_workers_vcpu(None, None, DictOutput())
+                    cli_total_workers_vcpu(None, None, output)
 
     def test_unset_ca_cert_path_uses_the_service_ca(self):
         """Without METRICS_UTILITY_PROMETHEUS_CA_CERT_PATH, the in-cluster service CA is used."""
@@ -147,8 +151,9 @@ class TestTokenAndCertificateHandling:
             mock_exists.return_value = False
 
             env = METERING_ENV | {'METRICS_UTILITY_PROMETHEUS_TOKEN': 'dev', 'METRICS_UTILITY_PROMETHEUS_CA_CERT_PATH': '/nope/ca.crt'}
+            output = DictOutput()
             with temporary_env(env), pytest.raises(MetricsException, match=re.escape('CA_CERT not found at /nope/ca.crt')):
-                cli_total_workers_vcpu(None, None, DictOutput())
+                cli_total_workers_vcpu(None, None, output)
 
     def test_token_with_newlines_is_stripped(self):
         """Test that token with newlines is properly stripped."""
@@ -160,7 +165,6 @@ class TestTokenAndCertificateHandling:
         ):
             mock_get.return_value = ['total_workers_vcpu']
             mock_exists.return_value = True
-
             mock_tw_vcpu.return_value = gathering_collector()
 
             with temporary_env(METERING_ENV):
@@ -180,7 +184,6 @@ class TestTokenAndCertificateHandling:
             mock_get.return_value = ['total_workers_vcpu']
             # This shouldn't be called since metering is disabled
             mock_exists.return_value = False
-
             mock_tw_vcpu.return_value = gathering_collector()
 
             with temporary_env(METERING_ENV | {'METRICS_UTILITY_USAGE_BASED_METERING_ENABLED': 'false'}):
@@ -203,6 +206,7 @@ class TestTokenAndCertificateHandling:
             mock_get.return_value = ['total_workers_vcpu']
             mock_exists.return_value = True
 
+            output = DictOutput()
             with temporary_env(METERING_ENV):
                 with pytest.raises(IOError, match='Permission denied'):
-                    cli_total_workers_vcpu(None, None, DictOutput())
+                    cli_total_workers_vcpu(None, None, output)
