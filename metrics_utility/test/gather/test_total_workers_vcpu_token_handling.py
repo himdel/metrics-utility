@@ -31,9 +31,10 @@ class TestTokenAndCertificateHandling:
         with (
             patch('metrics_utility.automation_controller_billing.collectors.get_optional_collectors') as mock_get,
             patch('metrics_utility.automation_controller_billing.collectors.os.path.exists') as mock_exists,
+            patch('builtins.open', mock_open(read_data='k8s-token')),
         ):
             mock_get.return_value = ['total_workers_vcpu']
-            # Token exists but CA cert doesn't
+            # Token exists but CA cert doesn't - the token is read before the CA cert is checked
             mock_exists.side_effect = lambda path: 'token' in path
 
             with temporary_env({'METRICS_UTILITY_CLUSTER_NAME': 'test-cluster', 'METRICS_UTILITY_USAGE_BASED_METERING_ENABLED': 'true'}):
