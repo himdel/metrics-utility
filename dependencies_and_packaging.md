@@ -329,7 +329,17 @@
 - **What happened**: Same AAP-89829 CVE remediation applied to the top-level app: `sqlparse` was re-resolved from 0.5.3 to 0.6.0 in `uv.lock` via `uv lock --upgrade-package sqlparse` (fixes for CVE-2026-54284, CVE-2026-59893, CVE-2026-71491). Lockfile-only change (three lines); `pyproject.toml` untouched. Parallels the metrics-utility bump (15f5fb1 #564); note the two repos started from different resolved versions (m-s 0.5.3, m-u 0.5.5) but converge on 0.6.0.
 - **Insight**: A transitive-dependency CVE floor has to be forced forward independently in each repo's own lockfile (the top-level app and the vendored submodule resolve separately), even though the target version and remediation command are identical.
 
+### `segment-analytics-python` dropped in favour of `requests`
+- **Repo**: ansible/metrics-utility
+- **Commits**: 5b28769 (#574)
+- **What happened**: `segment-analytics-python` was removed from `pyproject.toml` and, with its transitive packages, from `uv.lock` (-35 lines) when `StorageSegment` switched to posting directly to Segment's HTTP `/v1/batch` endpoint. The optional-import guard stayed, but now protects `import requests` and sets the same `SEGMENT_AVAILABLE` flag -- so the "analytics disabled, log and skip" behaviour in environments without the dependency is unchanged, and the log message changed from "segment module not installed" to "requests module not installed".
+- **Insight**: Swapping a vendor SDK for `requests` shrinks the runtime dependency footprint to something already present in most deployments, and the existing `try/except ImportError` + `SEGMENT_AVAILABLE` guard transfers to the new import unchanged -- keep the flag name and the graceful-skip contract, just repoint what it guards.
+
 ## Superseded / Semi-Obsolete
+
+### `segment-analytics-python` as a runtime dependency
+- **Repo**: ansible/metrics-utility
+- Added in #113-era work and made optional via `try/except ImportError` in cf644cb (#270) because the Controller image does not install it. Removed outright in 5b28769 (#574) when `StorageSegment` started talking to Segment's HTTP API directly; `SEGMENT_AVAILABLE` now guards `requests` instead. The conditional-import lesson from #270 still applies -- only the guarded package changed.
 
 ### pandas >=2.2.3 and openpyxl ==3.1.2
 - **Repo**: ansible/metrics-utility

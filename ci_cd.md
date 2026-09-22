@@ -378,6 +378,24 @@
 - **What happened**: An `ignore` rule (`dependency-name: '*'`, `update-types: ['version-update:semver-major']`) was added to the uv ecosystem in `.github/dependabot.yml`, so Dependabot never opens PRs for semver-major bumps of Python deps. This complements the same PR's move of runtime pins to compatible-release (`~=`) ranges — see the dependencies_and_packaging.md entry.
 - **Insight**: Pair compatible-release runtime pins with a Dependabot semver-major ignore rule so major upgrades (e.g. Django LTS jumps) stay deliberate, human-driven changes rather than automatic monthly-batch PRs.
 
+### SonarCloud reported 0% new-code coverage because the two workflows analysed different commits
+- **Repo**: ansible/metrics-utility
+- **Commits**: 2200b51 (#557)
+- **What happened**: SonarCloud showed 0% coverage on new-code lines for PRs even though pytest measured them as fully covered and `coverage.xml` was correct -- but only once `devel` had moved on from the branch point. Root cause: `pytest.yml` runs on `pull_request`, so `actions/checkout` gives it the *fake merge commit* and `coverage.xml` line numbers are relative to that tree; `sonar_checks.yml` runs on `workflow_run` and used `gh pr checkout`, analysing the *PR head* instead. Once a file's length differed between the two trees, `coverage.xml` referenced a line past the end of the file as Sonar saw it (`Line 124 is out of range in the file .../s3_handler.py (lines: 122)`), and the Cobertura sensor treats that as fatal -- discarding the **entire** coverage report, so every new-code line reads 0%, not just the file that grew. Fix: `pytest.yml` records `git rev-parse HEAD` into `coverage_sha.txt` and uploads it alongside `pr_number.txt`; `sonar_checks.yml` does `git fetch origin "$COVERAGE_SHA" && git checkout "$COVERAGE_SHA"` instead of `gh pr checkout`. The merge commit is ephemeral, so a much-later manual re-run can fail the fetch -- deliberately accepted, since a loud failure beats a silent 0%. The same PR replaced `permissions: read-all` in `sonar_checks.yml` with least-privilege `actions: read` / `contents: read` / `pull-requests: read`, and added `permissions: contents: read` to `pytest.yml`.
+- **Insight**: When coverage is measured in one workflow and analysed in another, the SHA the coverage was generated against must travel with the artifact -- on a `pull_request` event that is the ephemeral merge commit, not the PR head, and a single out-of-range line number makes the Cobertura sensor drop the whole report rather than just that file.
+
+### SonarCloud push scan gated on the canonical repo so the downstream mirror doesn't fail
+- **Repo**: ansible/metrics-utility
+- **Commits**: 1ce563b (#561)
+- **What happened**: The push-to-`devel` SonarCloud step in `pytest.yml` was guarded only by `if: ${{ ! github.base_ref }}`. The downstream mirror also pushes to `devel` but has no `CICD_ORG_SONAR_TOKEN_CICD_BOT` secret, so the step failed there on every push. The condition became `if: ${{ ! github.base_ref && github.repository == 'ansible/metrics-utility' }}`, so the mirror skips the step entirely instead of failing it.
+- **Insight**: Any workflow step that depends on an org-scoped secret needs a `github.repository == '<canonical>'` guard, otherwise forks and downstream mirrors running the same workflow file fail on a secret they can never have -- skipping is the correct behaviour, not erroring.
+
+### repo-sync workflow gated on `github.repository_owner` so the mirror doesn't sync itself
+- **Repo**: ansible/metrics-utility
+- **Commits**: 745babe (#586)
+- **What happened**: The push-triggered `repo-sync.yaml` (#548) is itself part of the content mirrored into `ansible-automation-platform/metrics-utility`, so it also fired on pushes there -- and failed in `actions/create-github-app-token@v2` with `privateKey option is required`, because the GitHub App private key is an upstream-org secret (observed in mirror run 35706442562). The fix adds `if: github.repository_owner == 'ansible'` at the **job** level, with a comment explaining why, so the mirrored copy never allocates a runner or reaches any credential-consuming step.
+- **Insight**: This is the same class of bug as the SonarCloud guard (#561), one level up: a sync workflow is copied downstream by the very sync it performs, so it must guard itself. Guard at the job level rather than the step level when the whole job is credential-dependent -- that skips runner allocation too -- and prefer `github.repository_owner` over `github.repository` when the workflow file is deliberately repo-name-agnostic.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)

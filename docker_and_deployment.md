@@ -214,6 +214,12 @@
 - **What happened**: MinIO was replaced by SeaweedFS in both the Docker Compose file and CI workflow. SeaweedFS runs in `weed mini` mode (single binary bundling master+volume+filer+S3 gateway). Key differences: (1) Zero setup -- no separate `mc` (MinIO client) container, no user/bucket/permission creation steps. Credentials and bucket are configured via env vars directly on the SeaweedFS container (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`). (2) S3 endpoint port changed from 9000 to 8333. (3) Uses of the `mc` CLI were replaced by `awscli`'s `aws` command. (4) The healthcheck uses `curl -s` without `-f` because the S3 endpoint returns 403 for unauthenticated requests (curl -f treats 4xx as failure). (5) The `minio-setup` init container (which created buckets, users, and access keys) was eliminated entirely. No Python code or tests were modified -- boto3 is provider-agnostic.
 - **Insight**: SeaweedFS's `weed mini` mode eliminates the init-container dance required by MinIO (alias setup, bucket creation, user/policy/key creation). For dev/CI environments where S3 is just a storage backend, the simpler setup reduces compose complexity and startup time. The provider-agnostic nature of boto3 means the application code is unaffected by the swap.
 
+### `:z` SELinux relabel added to every compose bind mount
+- **Repo**: ansible/metrics-utility
+- **Commits**: dac52e0 (#575)
+- **What happened**: Every bind mount in `tools/docker/docker-compose.yaml` got a `:z` suffix -- the nine `*.sql` init scripts mounted into the postgres container's `/docker-entrypoint-initdb.d/`, the read-only source mount `../..:/app_ro`, and the env-profile source mount `../../:/app`. Without it, `make compose` fails on SELinux-enforcing hosts (Fedora): the container process is denied access to files labelled for the host. `:z` tells the container engine to relabel the content with a shared (multi-container-usable) SELinux label; `:Z` would apply a private label that only one container may use, which is wrong here since several services mount the same tree.
+- **Insight**: Compose files that are only ever tested on Docker Desktop or Ubuntu silently omit `:z` and then break for every Fedora/RHEL developer -- add it to all bind mounts by default, and prefer `:z` (shared) over `:Z` (private) whenever more than one container touches the same path.
+
 ## Superseded / Semi-Obsolete
 
 ### MinIO used for S3-compatible storage in dev/CI

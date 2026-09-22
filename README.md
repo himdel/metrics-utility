@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 15f5fb1 | 2026-08-27 | bump sqlparse to >=0.6.0 (#564) |
+| metrics-utility | 745babe | 2026-09-22 | fix: run repo sync only in upstream org (#586) |
 | metrics-service | 96580367 | 2026-08-27 | bump sqlparse to >=0.6.0 (#417) |
 | awx | b980d60e99 | 2026-08-28 | AAP-66689 - Fix JT admins unable to toggle ask_*_on_launch fields without project_inventory access (#16623) |
 
