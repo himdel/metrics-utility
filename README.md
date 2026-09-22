@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | 745babe | 2026-09-22 | fix: run repo sync only in upstream org (#586) |
-| metrics-service | 96580367 | 2026-08-27 | bump sqlparse to >=0.6.0 (#417) |
+| metrics-service | ac7f79e9 | 2026-09-22 | chore: address actionable Sonar findings and TODO follow-ups (#435) |
 | awx | b980d60e99 | 2026-08-28 | AAP-66689 - Fix JT admins unable to toggle ask_*_on_launch fields without project_inventory access (#16623) |
 
 ## About the "Superseded / Semi-Obsolete" sections

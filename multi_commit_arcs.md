@@ -152,6 +152,12 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Evolution**: framework-validation workflow added (#84) -> removed, too strict for custom service (#88) -> settings restructured to single `metrics_service/settings.py` with `apps/settings/` layer (#77) -> framework validation re-added using PSF's own `validate` command, all project-specific code moved out of protected files to Dynaconf post-hooks (#267)
 - **PRs**: 4 (#77, #84, #88, #267)
 
+### Gamification: a visibility flag, then the leaderboards API, then the cleanup pass
+- **Files**: api_design.md, architecture.md, settings_and_configuration.md, performance.md, bugs_and_pitfalls.md, testing.md
+- **Evolution**: #410 (09dfeaf) landed the *visibility* half first -- `SHOW_GAMIFICATION` (admin-writable at runtime via a new POST on `collection_status`) and `SHOW_DASHBOARD` (flag ANDed with the caller's admin/auditor role), which also meant opening `collection_status` from an admin-only viewset to any authenticated user with per-action permission checks -> #422 (7734e5c) then landed the data half, a single read-only `leaderboard` aggregate endpoint over a shared trailing-30-day window (one day-by-org GROUP BY feeding counts, streaks and the org leaderboard; a separate per-user GROUP BY feeding three activity levels; ten achievements as thresholds over the same data; other users shown as two-letter initials) -> #435 (ac7f79e) came back over it for Sonar maintainability findings and found two real behaviour bugs in passing (NULL-named orgs sorting first on a tie-break; empty-string cron expressions never matching `isnull` filters), while keeping the TODOs that matter (deriving the caller's own organization once membership data is ingested) rather than deleting them.
+- **PRs**: 3 (#410, #422, #435)
+- **Lesson**: Shipping the feature flag before the feature let the UI gate itself from day one, and the flag's two halves (persisted operator state vs per-request role) stayed distinct instead of collapsing into one setting. The cleanup pass is the interesting one: a "no runtime behaviour change" refactor PR turned up two genuine bugs, both of the same shape -- a predicate written once and assumed to mean what its comment said.
+
 ## metrics-utility arcs
 
 ### Shared library: built out, then pruned back to the metrics-service surface

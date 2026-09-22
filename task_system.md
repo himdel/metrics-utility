@@ -266,6 +266,17 @@
 - **What happened**: The `initial_resource_sync` task in `task_groups.py` was given explicit retry configuration: `"retry_delay_seconds": 60` and `"max_attempts": 5`. Previously it used the model defaults (3 attempts, exponential backoff from `RETRY_BASE_DELAY_SECONDS`). The 60-second retry delay aligns with the gateway's `populate_service_id` cycle -- after metrics-service registers its `service_id` with the gateway, the gateway takes up to 60 seconds to propagate it. If `initial_resource_sync` fires before propagation completes, it fails because the service isn't recognized yet. Five attempts at 60-second intervals give a 5-minute window for the gateway to complete propagation.
 - **Insight**: When a task depends on an external service's periodic sync cycle, set the retry delay to match (or slightly exceed) that cycle's interval. A fixed delay is appropriate here (not exponential backoff) because the gateway's propagation cycle is fixed at 60 seconds -- backing off would just add unnecessary wait time. The 5-attempt / 5-minute window covers the typical worst-case propagation delay with margin.
 
+### Non-recurring task selection unified on `Task.non_recurring_filter()` (NULL *or* empty cron)
+- **Repo**: ansible/metrics-service
+- **Commits**: ac7f79e (#435)
+- **What happened**: The Task model gained `non_recurring_filter()`, a staticmethod returning `Q(cron_expression__isnull=True) | Q(cron_expression="")`, and every place that classified a task as one-shot vs recurring was switched to it: `ready_to_run()`, `immediate_tasks()`, `recurring_tasks()` (via `.exclude(...)`), the retry scheduling path, and both branches of `cleanup_old_tasks` (the `completed_at` path and the `modified` fallback), which also had to move from kwargs dicts to composed `Q` objects to accept it. Previously each site spelled the predicate itself as `cron_expression__isnull=True`, which missed empty strings -- see bugs_and_pitfalls.md for what that broke.
+- **Insight**: When a column has two representations of "absent", the predicate belongs on the model as a named queryset helper, not open-coded per call site -- otherwise the fix has to be found and applied five times and the next new query site starts the cycle again.
+
+### Scheduler feature-flag lookups cached per sync pass
+- **Repo**: ansible/metrics-service
+- **Commits**: 5cc096f (#427)
+- See "Feature flags resolved once per scheduler sync pass, still per-fire at execution time" in performance.md -- `_task_feature_flag_enabled()` takes an optional per-pass dict, while the execution path keeps resolving flags fresh on every fire so runtime toggles still apply.
+
 ## Superseded / Semi-Obsolete
 
 ### daily_dashboard_collection cron task

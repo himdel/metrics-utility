@@ -396,6 +396,24 @@
 - **What happened**: The push-triggered `repo-sync.yaml` (#548) is itself part of the content mirrored into `ansible-automation-platform/metrics-utility`, so it also fired on pushes there -- and failed in `actions/create-github-app-token@v2` with `privateKey option is required`, because the GitHub App private key is an upstream-org secret (observed in mirror run 35706442562). The fix adds `if: github.repository_owner == 'ansible'` at the **job** level, with a comment explaining why, so the mirrored copy never allocates a runner or reaches any credential-consuming step.
 - **Insight**: This is the same class of bug as the SonarCloud guard (#561), one level up: a sync workflow is copied downstream by the very sync it performs, so it must guard itself. Guard at the job level rather than the step level when the whole job is credential-dependent -- that skips runner allocation too -- and prefer `github.repository_owner` over `github.repository` when the workflow file is deliberately repo-name-agnostic.
 
+### metrics-service repo-sync gated on `github.repository` -- the same mirror-runs-the-sync bug as m-u #586
+- **Repo**: ansible/metrics-service
+- **Commits**: 1e5a735 (#433)
+- **What happened**: Exactly the failure described in "repo-sync workflow gated on `github.repository_owner`..." above, in the other repo and on the same day: the push-triggered `repo-sync.yaml` added in cb101c6 (#416) is itself mirrored into `ansible-automation-platform/metrics-service`, so it fired there too and failed with an empty `private-key` (downstream run 35706566414 failed, the matching upstream run 35706550921 succeeded). The fix adds `if: github.repository == 'ansible/metrics-service'` at the job level. Note the guard differs from metrics-utility's, which used `github.repository_owner == 'ansible'`; the m-s workflow is otherwise the same repo-name-agnostic file, and the monthly dependabot batch dcbd1a1 (#419) had already moved it to `actions/create-github-app-token@v3` (alongside `actions/checkout` v6->v7 and `astral-sh/setup-uv` v7->v10).
+- **Insight**: A mirrored workflow that performs the mirroring will always need a self-guard, and the two repos landing the identical fix within hours of each other is the giveaway that this belongs in the org-standard template rather than in each caller. Either guard works; `github.repository_owner` is the better fit for a file that is deliberately repo-name-agnostic, `github.repository` the safer one if the same org ever hosts a second copy.
+
+### Ruff 0.16.0 with the locked version in CI; black and isort removed as vestigial
+- **Repo**: ansible/metrics-service
+- **Commits**: 0fa139d (#370)
+- **What happened**: The metrics-service counterpart of m-u #506 (see "Ruff switched from extend-select to explicit select, CI uses locked version" below). `pyproject.toml`/`uv.lock` moved ruff 0.15.18 -> 0.16.0, the pre-commit hook v0.11.2 -> v0.16.0 with the hook id renamed `ruff` -> `ruff-check` and its `args: [--fix]` dropped, and `pr-checks.yml` switched from `uvx ruff` (whatever is latest on PyPI) to `uv run ruff` so CI lints with the version in the lockfile. The `black` and `isort` dev dependencies and their `[tool.black]` / `[tool.isort]` config blocks were deleted outright -- ruff's `I` rules already do the import sorting and `ruff format` the formatting, so both had been dead config; the `E501` ignore comment was updated from "handled by black" to "handled by formatter".
+- **Insight**: `uvx <tool>` in CI silently floats to the newest release, so a lint job can start failing on a commit that changed nothing -- `uv run` keeps CI, pre-commit and developers on the same pinned version. And once ruff owns both linting and formatting, leftover black/isort entries are worse than harmless: they advertise a toolchain that is not actually running.
+
+### Standardised SECURITY.md adopted from the ansible-community project template
+- **Repo**: ansible/metrics-service
+- **Commits**: 8ae2ccb (#418)
+- **What happened**: The repo's short `SECURITY.md` was replaced with the canonical 44-line version from `ansible-community/project-template`, so vulnerability-reporting instructions read the same across every Ansible repo. Motivated by EU CRA compliance work (per the linked forum thread), and rolled out org-wide rather than authored per repo.
+- **Insight**: Security-reporting policy is org-level metadata, not project documentation -- take the canonical file verbatim so a reporter sees identical instructions whichever repo they land on, and so a future policy change is one template update rather than N.
+
 ## Superseded / Semi-Obsolete
 
 ### pytest workflow was disabled in this batch (m-s)
