@@ -39,7 +39,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 |------|--------|------|---------|
 | metrics-utility | 745babe | 2026-09-22 | fix: run repo sync only in upstream org (#586) |
 | metrics-service | ac7f79e9 | 2026-09-22 | chore: address actionable Sonar findings and TODO follow-ups (#435) |
-| awx | b980d60e99 | 2026-08-28 | AAP-66689 - Fix JT admins unable to toggle ask_*_on_launch fields without project_inventory access (#16623) |
+| awx | c0e1e7e6cb | 2026-09-15 | AAP-79229 Custom roles with identical permissions to built-in roles cause HTTP 500/403 resource creation failures (#16639) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
