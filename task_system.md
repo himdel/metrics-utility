@@ -277,6 +277,18 @@
 - **Commits**: 5cc096f (#427)
 - See "Feature flags resolved once per scheduler sync pass, still per-fire at execution time" in performance.md -- `_task_feature_flag_enabled()` takes an optional per-pass dict, while the execution path keeps resolving flags fresh on every fire so runtime toggles still apply.
 
+### dispatcherd pg_notify broker now inherits the Django DB's OPTIONS (TLS settings)
+- **Repo**: ansible/metrics-service
+- **Commits**: faaf1dd (#428)
+- **What happened**: Both dispatcher config builders (`_load_config_with_django_db()` for the YAML path and `build_config_from_django_settings()`) constructed the pg_notify broker connection from only `NAME/USER/PASSWORD/HOST/PORT`, so a cert-authenticated `default` DB would work for Django but the dispatcher's LISTEN/NOTIFY connection would have no `sslcert`/`sslkey`/`sslmode`. A shared `_postgres_connection_config(db_config)` now copies `OPTIONS`, strips the Django-only keys (`assume_role`, `isolation_level`, `pool`, `server_side_binding`) that `psycopg.connect()` would reject, and overlays the core fields. The YAML path's own `pg_notify.config` is replaced wholesale by this dict (a test puts `sslmode: disable` in the YAML and asserts it is gone). The copy avoids mutating `settings.DATABASES`.
+- **Insight**: Any side channel that opens its own DB connection (dispatcher broker, advisory-lock sessions, raw psycopg) must derive connection params from the same source as Django including `OPTIONS` -- otherwise auth/TLS changes silently apply to only half the process; filter out Django-specific OPTIONS keys rather than allowlisting libpq ones.
+
+### initial_resource_sync re-runs once per installed service/DAB build (source fingerprint)
+- **Repo**: ansible/metrics-service
+- **Commits**: 4e045b7 (#445)
+- **What happened**: The one-shot preservation added in #333 (`create_system_tasks()` snapshots completed `cron=None` system tasks and restores them after delete-and-recreate) had an unintended effect on `initial_resource_sync` (#320): once it completed, it never ran again, so upgrades -- including DAB upgrades that change sync behaviour -- never resynced Gateway users/orgs/teams/role assignments. `create_system_tasks()` now computes `_get_resource_sync_version()`: a SHA-256 over every non-`.pyc` file under `apps/`, `metrics_service/` and the installed `ansible_base` package (sorted relative paths + bytes), prefixed with `metrics-service=<ver>;django-ansible-base=<ver>`. It is stored in the task's args as `task_data["_resource_sync_version"]`; a completed sync is preserved only if the stored fingerprint matches, otherwise it is recreated `pending`. Failed syncs stay retryable as before. `sync_resources_from_gateway` was also added to `TASK_LOCKS` so two runs can never reconcile concurrently. The source hash (not just version strings) is used because container builds install DAB from a checked-out submodule, where the package version does not change between commits.
+- **Insight**: A blanket "don't re-run completed one-shots on restart" rule is wrong for tasks whose correctness depends on code version; key such tasks' completion on a build fingerprint so restarts are cheap but upgrades re-run them. Hash sources, not just version metadata, when dependencies can be installed from unversioned git checkouts.
+
 ## Superseded / Semi-Obsolete
 
 ### daily_dashboard_collection cron task

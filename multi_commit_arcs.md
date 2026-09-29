@@ -158,6 +158,18 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **PRs**: 3 (#410, #422, #435)
 - **Lesson**: Shipping the feature flag before the feature let the UI gate itself from day one, and the flag's two halves (persisted operator state vs per-request role) stayed distinct instead of collapsing into one setting. The cleanup pass is the interesting one: a "no runtime behaviour change" refactor PR turned up two genuine bugs, both of the same shape -- a predicate written once and assumed to mean what its comment said.
 
+### PostgreSQL client certificate auth (AAP-91529)
+- **Files**: settings_and_configuration.md, bugs_and_pitfalls.md, task_system.md, testing.md
+- **Evolution**: #428 (faaf1dd) made the DB password optional per alias when a complete `sslcert`/`sslkey` pair is set, with a strict `sslmode` allowlist of `require`/`verify-ca`/`verify-full` (explicitly rejecting `prefer`), lowercase-OPTIONS enforcement, and TLS options carried into dispatcherd's pg_notify broker; within the PR a Dynaconf `must_exist` bug made the cert-pair check fire for every password-only install -> #444 (115cfea), next day, added `prefer` to the allowlist because the containerized installer emits it and startup failed before migrations.
+- **PRs**: 2 (#428, #444)
+- **Lesson**: Validate against what the installer actually generates; a "secure by default" validator that blocks the supported installer is reverted within a day.
+
+### Gateway resource sync (one-time backfill -> per-build, snapshot-safe reconciliation)
+- **Files**: architecture.md, task_system.md, metrics_service.md, api_design.md
+- **Evolution**: #320 (87784a9) added one-shot `initial_resource_sync` wrapping DAB `SyncExecutor` (periodic sync dropped since Gateway pushes assignments) -> #365 (44e30ac) tuned retries to the Gateway's 60s `populate_service_id` cycle -> #333 one-shot preservation in `create_system_tasks()` quietly meant the sync never re-ran after upgrades -> #443 (aa10b0d) started serving `/users/me` organization memberships from the synced tables, raising the stakes on sync freshness -> #445 (4e045b7) re-runs the sync per service/DAB source fingerprint, disables DAB's built-in assignment sync, reconciles assignments only from a complete Gateway snapshot, and serializes the task via `TASK_LOCKS`.
+- **PRs**: 5 (#320, #365, #333, #443, #445)
+- **Lesson**: Generic lifecycle rules (preserve completed one-shots) interact badly with tasks whose job is to track external state across versions; and once an API reads from a synced mirror, sync safety (no destructive diff on partial data) matters as much as sync existence.
+
 ## metrics-utility arcs
 
 ### Shared library: built out, then pruned back to the metrics-service surface

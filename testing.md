@@ -419,6 +419,12 @@
 - **What happened**: AAP-87121. Test-only change adding `test_dataframe_jobhost_summary_usage.py`: it feeds `DataframeJobhostSummaryUsage` a mix of `DIRECT` rows (the same `direct-host` twice) and `INDIRECT` rows (`shared-host` twice in Engineering, once in Operations, plus a distinct `unique-host`) and asserts that duplicate indirect hostnames collapse to one row per organization, the same hostname in a different organization stays separate, and repeated direct rows keep their existing aggregation.
 - **Insight**: Billing dedup rules ("same host" means same hostname *within one org* for indirect nodes) are business logic, not implementation detail -- pin them with a small table-driven DataFrame test so a groupby refactor cannot quietly change what gets counted.
 
+### Settings validator matrices and libpq-parsed connection params in unit tests
+- **Repo**: ansible/metrics-service
+- **Commits**: faaf1dd (#428), 115cfea (#444), 4e045b7 (#445)
+- **What happened**: `TestDatabaseAuthValidation` in `tests/unit/test_dynaconf_settings.py` stacks `@pytest.mark.parametrize` over alias (`default`/`awx`) x password (`""`/set) x every libpq `sslmode` (including `None`) and builds a fresh Dynaconf settings object per case, so allowing `prefer` in #444 was a one-line change to both the validator and the expected-pass set. The dispatcher test goes past dict equality: it round-trips the broker config through `psycopg.conninfo.make_conninfo()`/`conninfo_to_dict()` so libpq itself parses the TLS parameters, and deep-copies the input to assert Django settings were not mutated. #445's resource-sync tests monkeypatch `SyncExecutor`/`get_remote_assignments` to append to a shared `events` list and assert call order (`["resources", "assignments"]`) and that `_reconcile_assignments` is not called on incomplete/error paths, alongside DAB-backed tests that use real `AssignmentTuple`s and `RoleDefinition`s.
+- **Insight**: For config validators, a full cross-product matrix makes policy changes trivial and reviewable; for connection-building code, let the real driver parse the output (`make_conninfo`) instead of trusting a hand-built dict.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py
