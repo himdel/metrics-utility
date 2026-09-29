@@ -161,12 +161,6 @@
 - **What happened**: SonarCloud scanning was re-added (it had been removed in 8481170 #17) using a two-workflow pattern. The `pytest.yml` workflow now uploads `coverage.xml` as an artifact and saves the PR number to a text file artifact. A new `sonar_checks.yml` workflow triggers on `workflow_run` completion of the pytest workflow, downloads the coverage artifact, validates the PR number against the workflow run's commit (preventing artifact substitution attacks), and runs the SonarCloud scan with PR-specific parameters. For push events (non-PR), SonarCloud runs directly in the pytest workflow. The checkout now uses `fetch-depth: 0` for full git history (required by SonarCloud for blame analysis).
 - **Insight**: The `workflow_run` pattern solves the secrets-in-PRs problem: the pytest workflow runs on `pull_request` (no secrets), uploads artifacts, then the Sonar workflow runs on `workflow_run` (has secrets) and downloads them. The PR number validation step (checking that the artifact's PR number matches the actual PR for the commit) is a security measure against malicious artifact substitution.
 
-### CI SQL schema requires pre-created functions for read-only mode
-- **Repo**: ansible/metrics-utility
-- **Commits**: 7d148b9 (#300)
-- **What happened**: The CI test database uses a read-only schema import (`latest.sql`), but metrics-utility creates custom PostgreSQL functions (`metrics_utility_is_valid_json`, `metrics_utility_parse_yaml_field`) dynamically via `CREATE OR REPLACE FUNCTION` when running with write access. Older versions of `latest.sql` were captured after running metrics-utility (so they already included the functions), but updating the schema to a fresh dump (2025-12) lost them. A separate `functions.sql` was added to the Docker Compose init scripts to pre-create these functions. Additionally, new non-nullable boolean fields (`event_queries_processed` in `main_job`, `org_unique` in `main_unifiedjobtemplate`) were added to the test data inserts.
-- **Insight**: When CI tests run against a read-only database, any runtime-created objects (functions, views) must be included in the schema init scripts -- this is easy to miss when updating the schema dump to a newer version that was captured before the utility ran against it.
-
 ### SonarCloud workflow hardened with PR state validation and HTTP error checking
 - **Repo**: ansible/metrics-service
 - **Commits**: 8ba3c14 (#101)
@@ -300,12 +294,6 @@
 - **What happened**: All GitHub Actions references across 6 workflow files were changed from tag-based versions (e.g., `actions/checkout@v6`) to commit SHA pins with version comments (e.g., `actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6`). This covers `actions/checkout`, `astral-sh/setup-uv`, `actions/setup-python`, `actions/setup-go`, `actions/upload-artifact`, `actions/download-artifact`, `SonarSource/sonarqube-scan-action`, `codecov/codecov-action`, `actions/github-script`, and `snyk/actions/setup`. Dependabot will continue proposing updates in the same SHA+comment format.
 - **Insight**: Pinning GitHub Actions to commit SHAs prevents supply chain attacks where a tag is moved to point to malicious code -- the version comment preserves human readability while the SHA ensures immutability. Dependabot understands this format and proposes updates with both the new SHA and version comment.
 
-### PR target branch validation added for metrics-utility
-- **Repo**: ansible/metrics-utility
-- **Commits**: ba7ad32 (#458)
-- **What happened**: A "Check PR target" step was added to `pr-checks.yml` that validates the PR's base branch before running any other checks. On upstream (`ansible/metrics-utility`), PRs must target `devel`; forks may target `stable-*` branches. This mirrors the pattern from `ansible/metrics-service` (#249) but uses `stable-*` (no `2.` prefix) to match metrics-utility's branch naming convention. The check uses shell conditionals with `[[ "$BASE_BRANCH" == stable-* ]]` for glob matching.
-- **Insight**: Target branch validation patterns must be adapted per repo -- metrics-utility uses `stable-*` branches while metrics-service uses `stable-2.*` branches, so the glob pattern differs even though the CI logic is structurally identical.
-
 ### Jira ticket tagging GitHub Action auto-links PRs to Jira issues
 - **Repo**: ansible/metrics-utility
 - **Commits**: b73d38a (#462)
@@ -414,7 +402,35 @@
 - **What happened**: The repo's short `SECURITY.md` was replaced with the canonical 44-line version from `ansible-community/project-template`, so vulnerability-reporting instructions read the same across every Ansible repo. Motivated by EU CRA compliance work (per the linked forum thread), and rolled out org-wide rather than authored per repo.
 - **Insight**: Security-reporting policy is org-level metadata, not project documentation -- take the canonical file verbatim so a reporter sees identical instructions whichever repo they land on, and so a future policy change is one template update rather than N.
 
+### CI surfaces psql import errors as GitHub annotations without failing the job
+- **Repo**: ansible/metrics-utility
+- **Commits**: 1ae5840 (#577)
+- **What happened**: Both "Import SQL dump" steps in `pytest.yml` pipe `cat tools/docker/{roles,latest,...}.sql | sudo su - postgres -c psql`, which never set `ON_ERROR_STOP`, so errors (like the duplicate `CREATE FUNCTION ... already exists` from `functions.sql` after the AWX-dumped helpers landed in `latest.sql`) scrolled past invisibly. psql's stderr is now routed through a process substitution, `2> >(while IFS= read -r line; do if [[ "$line" == ERROR:* ]]; then echo "::error title=PostgreSQL import::$line"; else echo "$line" >&2; fi; done)`, turning each `ERROR:` line into a workflow annotation while everything else passes through. Explicitly "without making them fatal". The first CI run of the PR showed the duplicate-function errors; the second commit deleted `functions.sql` to fix them (see database_and_migrations.md).
+- **Insight**: For a fixture import that has historically tolerated errors, annotate rather than fail first -- `::error` workflow commands make the errors visible on the PR summary without turning a long-silent problem into a red build before you have fixed it.
+
+### PR target check narrowed to `stable-2.*`, matching metrics-service
+- **Repo**: ansible/metrics-utility
+- **Commits**: af2d1ac (#594)
+- **What happened**: The "Check PR target" step in `pr-checks.yml` now accepts `stable-2.*` instead of `stable-*` (error message: "devel on ansible/metrics-utility or a stable-2.x branch"), so PRs targeting the old `stable-0.*` branches are rejected. Mostly for completeness -- the check only runs from the base branch's own workflow -- but it now matches metrics-service's pattern.
+- **Insight**: metrics-utility's release branches are now `stable-2.x` like metrics-service's, so the two repos' target-branch globs converged (supersedes the earlier "patterns must differ per repo" note).
+
+### Codecov thresholds silently ignored because `status:` sat at the YAML root
+- **Repo**: ansible/metrics-utility
+- **Commits**: 7d0e8f0 (#595)
+- **What happened**: `codecov.yml` had the `status: project/patch: default: {target: auto, threshold: 1%}` block at the top level instead of nested under `coverage:`. Codecov does not validate unknown root keys, so the 1% tolerance was never applied and trivial drops (e.g. -0.03%) failed the status check. The block was re-indented under `coverage.status`.
+- **Insight**: Codecov silently ignores misplaced keys -- if a small coverage dip fails despite a configured threshold, check that `status` is nested under `coverage` (and validate with `curl --data-binary @codecov.yml https://codecov.io/validate`).
+
 ## Superseded / Semi-Obsolete
+
+### PR target glob `stable-*` for metrics-utility
+- **Repo**: ansible/metrics-utility
+- **Commits**: ba7ad32 (#458)
+- The original check accepted any `stable-*` base branch, reasoning that m-u's branch naming differed from metrics-service's `stable-2.*`. Narrowed to `stable-2.*` in af2d1ac (#594), so the repos now use the same glob.
+
+### CI SQL schema requires pre-created functions (`functions.sql`)
+- **Repo**: ansible/metrics-utility
+- **Commits**: 7d148b9 (#300)
+- `tools/docker/functions.sql` was added to pre-create `metrics_utility_is_valid_json` / `metrics_utility_parse_yaml_field` for the no-write-access CI DB after a fresh `latest.sql` dump lacked them. Deleted in 1ae5840 (#577): AWX now creates these functions in its own migration (awx#16458), so any post-migration dump already contains them and the extra file only caused "already exists" errors. The general lesson (runtime-created objects must be in schema init for read-only CI) still holds.
 
 ### pytest workflow was disabled in this batch (m-s)
 - **Repo**: ansible/metrics-service

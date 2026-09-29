@@ -220,6 +220,12 @@
 - **What happened**: Every bind mount in `tools/docker/docker-compose.yaml` got a `:z` suffix -- the nine `*.sql` init scripts mounted into the postgres container's `/docker-entrypoint-initdb.d/`, the read-only source mount `../..:/app_ro`, and the env-profile source mount `../../:/app`. Without it, `make compose` fails on SELinux-enforcing hosts (Fedora): the container process is denied access to files labelled for the host. `:z` tells the container engine to relabel the content with a shared (multi-container-usable) SELinux label; `:Z` would apply a private label that only one container may use, which is wrong here since several services mount the same tree.
 - **Insight**: Compose files that are only ever tested on Docker Desktop or Ubuntu silently omit `:z` and then break for every Fedora/RHEL developer -- add it to all bind mounts by default, and prefer `:z` (shared) over `:Z` (private) whenever more than one container touches the same path.
 
+### `make clean` must name every compose profile, or profiled services survive
+- **Repo**: ansible/metrics-utility
+- **Commits**: 1f5bb97 (#591)
+- **What happened**: `docker compose down -v --rmi local` only acts on services in the default (unprofiled) set, so containers, volumes and locally built images from the `pytest`, `env`, `service` and `pytest-svc` profiles were left behind, and some only disappeared on a second `make clean`. The target now runs `compose ... --profile pytest --profile env --profile service --profile pytest-svc down -v --remove-orphans --rmi local`.
+- **Insight**: Compose profiles scope `down` as well as `up` -- a cleanup target has to enable every profile explicitly (and `--remove-orphans` catches the leftovers) to be a real one-pass reset.
+
 ## Superseded / Semi-Obsolete
 
 ### MinIO used for S3-compatible storage in dev/CI

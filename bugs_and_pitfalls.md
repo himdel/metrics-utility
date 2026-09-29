@@ -642,6 +642,12 @@
 - **What happened**: The organization leaderboard sorted by `(-runs, row["organization_name"] or "", row["organization_id"])`. Coalescing a NULL name to `""` makes unnamed orgs sort *before* every named one on a run-count tie -- the opposite of the "NULL last" behaviour the comment claimed, and enough to change which org is picked as the busiest (and therefore whose streak and achievements are reported). The key became `(-runs, name is None, name or "", id)`. Flagged as an intentional behaviour change in the PR description.
 - **Insight**: `value or ""` is the classic way to accidentally sort NULLs first in a Python sort key; put the `is None` boolean in the tuple ahead of the coalesced value when you want SQL's NULLS LAST semantics -- and when a tie-break decides which entity gets featured, a "cosmetic" ordering fix is a behaviour change worth announcing.
 
+### `::boolean` cast on `event_data.ignore_errors` crashed on unrendered Jinja strings
+- **Repo**: ansible/metrics-utility
+- **Commits**: f237bf3 (#599)
+- **What happened**: AAP-94777. `main_jobevent_service` computed `ignore_errors` as `COALESCE((event_data->>'ignore_errors')::boolean, (event_data->'res'->>'_ansible_ignore_errors')::boolean, false)`. When a playbook uses `ignore_errors: "{{ some_var }}"` and the template is not rendered (or evaluation fails), the raw template string is stored in `event_data`, and PostgreSQL's cast raises `InvalidTextRepresentation`, failing the whole collection. Each cast is now wrapped in `CASE WHEN btrim(lower(x)) IN ('true','false','t','f','y','n','1','0','yes','no','on','off') THEN x::boolean END`, so anything else yields NULL and falls through to `false`. The allowlist was refined in review: `y`/`n` added (PostgreSQL accepts them), `btrim()` added because the cast ignores surrounding whitespace; prefix forms (`tr`, `fa`, `of`...) that PostgreSQL also accepts were intentionally left out since JSON serialization only writes `true`/`false`. A test asserts all 12 literals appear in the generated SQL.
+- **Insight**: Never cast free-form JSON text straight to a strict SQL type in a bulk collector -- one bad row kills the whole query. Guard it with an allowlist `CASE` that mirrors the type's accepted input forms (Postgres has no `try_cast`), and let unexpected values fall back to the default.
+
 ## Superseded / Semi-Obsolete
 
 ### Django signals on Task model caused widespread test failures

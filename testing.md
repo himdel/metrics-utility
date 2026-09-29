@@ -391,7 +391,7 @@
 
 ### AWX collector port tested with MagicMock cursors plus a real AWX harness run
 - **Repo**: ansible/metrics-utility
-- **Commits**: 88f8f70 (#573)
+- **Commits**: 88f8f70 (#573); tests re-pointed at `collectors.controller.*` in 68876af (#578), which also deleted `test_collectors_awx_raw.py` along with the merged `awx.*` collectors
 - **What happened**: The 15 ported AWX collectors came with ~1,450 lines of tests across 12 files in `metrics_utility/test/library/`. The unit layer builds a `MagicMock` db whose `cursor()` is a context manager (`db.cursor.return_value.__enter__`/`__exit__` explicitly wired), sets `fetchall`/`fetchone` return values, and asserts on both the produced output and the generated SQL. Module-private helpers are imported directly and tested (`_decode`, `_as_datetime`, `_get_install_type`, `_get_settings` from `config`; each collector's `_window`), and the `_window` helpers are imported under aliases (`events_window`, `host_metric_window`, `unified_jobs_window`) since several modules define the same name. Snapshot semantics are asserted explicitly (`test_config_is_snapshot_only`). On top of that, the PR ran the collectors against an aap-dev AWX harness (15/15 passed) with seeded data covering event date boundaries, created/finished job windows, `launch_type='sync'` exclusion, and deleted host metrics.
 - **Insight**: For raw-SQL collectors, a mocked cursor only proves the Python plumbing and the SQL text -- the boundary cases that actually break (date windows, exclusion filters, soft-deleted rows) need a seeded real database, so pair the fast mock-based unit tests with one harness run against a real AWX schema.
 
@@ -412,6 +412,12 @@
 - **Commits**: ac7f79e (#435)
 - **What happened**: `tests/integration/dashboard_reports/test_template_metadata_db.py` gained `test_concurrent_template_metadata_creation_recovers_winner`, marked `@pytest.mark.django_db(transaction=True)` so the threads see committed data rather than a shared test transaction. It runs two `ThreadPoolExecutor` workers through `TemplateMetadata.get_by_awx_id_or_name()` with two `threading.Barrier`s -- one released after the lookup, one right before `_create_with_race_handling` -- so both threads are forced into the insert at the same moment instead of the test hoping for a natural collision, with `close_old_connections()` at the start of each worker.
 - **Insight**: A `get_or_create`-style race is only testable with `transaction=True` plus one real connection per thread; `Barrier`s turn "run it twice and hope" into a deterministic interleaving, which is what makes such a test worth keeping in CI.
+
+### Indirect-host dedup key pinned by a unit test: (hostname, organization)
+- **Repo**: ansible/metrics-utility
+- **Commits**: fa1aecf (#589)
+- **What happened**: AAP-87121. Test-only change adding `test_dataframe_jobhost_summary_usage.py`: it feeds `DataframeJobhostSummaryUsage` a mix of `DIRECT` rows (the same `direct-host` twice) and `INDIRECT` rows (`shared-host` twice in Engineering, once in Operations, plus a distinct `unique-host`) and asserts that duplicate indirect hostnames collapse to one row per organization, the same hostname in a different organization stays separate, and repeated direct rows keep their existing aggregation.
+- **Insight**: Billing dedup rules ("same host" means same hostname *within one org* for indirect nodes) are business logic, not implementation detail -- pin them with a small table-driven DataFrame test so a groupby refactor cannot quietly change what gets counted.
 
 ## Superseded / Semi-Obsolete
 

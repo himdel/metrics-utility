@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | 745babe | 2026-09-22 | fix: run repo sync only in upstream org (#586) |
+| metrics-utility | f237bf3 | 2026-09-29 | AAP-94777 \| fix(main_jobevent_service): guard ignore_errors boolean cast against non-boolean strings (#599) |
 | metrics-service | ac7f79e9 | 2026-09-22 | chore: address actionable Sonar findings and TODO follow-ups (#435) |
 | awx | c0e1e7e6cb | 2026-09-15 | AAP-79229 Custom roles with identical permissions to built-in roles cause HTTP 500/403 resource creation failures (#16639) |
 
