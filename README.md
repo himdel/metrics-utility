@@ -39,7 +39,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 |------|--------|------|---------|
 | metrics-utility | f237bf3 | 2026-09-29 | AAP-94777 \| fix(main_jobevent_service): guard ignore_errors boolean cast against non-boolean strings (#599) |
 | metrics-service | 4e045b7 | 2026-09-25 | feat: safely resync Gateway data and expose system auditor status (#445) |
-| awx | c0e1e7e6cb | 2026-09-15 | AAP-79229 Custom roles with identical permissions to built-in roles cause HTTP 500/403 resource creation failures (#16639) |
+| awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
