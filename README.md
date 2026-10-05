@@ -186,6 +186,11 @@ More documentation is available in [docs/](./docs/), and elsewhere:
 * [tools/anonymized\_db\_perf\_data/](./tools/anonymized_db_perf_data/) - perf test data for anonymization
 * [tools/collections/](./tools/collections/) - scripts for pulling list of collections from galaxy & automation hub
 * [tools/dashboard\_perf/](./tools/dashboard_perf/) - metrics-service dashboard collection benchmarks
+* [tools/db\_connectivity/](./tools/db_connectivity/) - gather DB connectivity failure reproduction and findings
+  * [Report failed collection slices](./tools/db_connectivity/issues/report-failed-slices.md)
+  * [Handle DB disconnects through finalization](./tools/db_connectivity/issues/handle-disconnects-and-cleanup.md)
+  * [Bound DB network waits during gather](./tools/db_connectivity/issues/bound-network-waits.md)
+  * [Prevent checkpoints skipping failed slices](./tools/db_connectivity/issues/protect-failed-slice-checkpoints.md)
 * [tools/docker/](./tools/docker/) - docker compose environment & mock awx data
 * [tools/perf/](./tools/perf/) - perf test data generator and scripts for build report
 * [tools/service\_perf/](./tools/service_perf/) - metrics-service API & task benchmarks
