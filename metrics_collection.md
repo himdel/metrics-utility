@@ -344,6 +344,12 @@
 - **What happened**: `awx.unified_jobs_table` selected jobs *created or finished* in the window and excluded `launch_type = 'sync'`; the consolidated `controller.unified_jobs` it was mapped onto keeps its own `date_where('main_unifiedjob.finished', ...)` filter with no launch-type exclusion. Only formatting changed in `unified_jobs` (uppercase `AS`, one join per line) plus removal of an unused, unaliased duplicate `LEFT JOIN main_unifiedjobtemplate` (the query only reads the `mut` alias). So callers that used `unified_jobs_table` now get finished-only jobs, including project/inventory syncs.
 - **Insight**: "Consolidating" two collectors over the same table is also a semantic choice -- when one is folded into the other, note which window and exclusion filters survived, since running-but-unfinished jobs and sync jobs silently enter or leave the data.
 
+### Fifteen analytics-only collectors registered in the service with persist_to_hourly=False
+- **Repo**: ansible/metrics-service
+- **Commits**: 0deb026 (#430)
+- **What happened**: The controller collectors consolidated into metrics-utility's `controller/` package (#578) were wired into metrics-service's scheduling registries as raw, analytics-only entries: hourly `events_table`, `workflow_job_node_table`, `query_info`; daily `main_host_daily`, `main_hostmetric`; snapshot `main_host`, `counts`, `cred_type_counts`, `host_metric_summary_monthly_table`, `instance_info`, `inventory_counts`, `org_counts`, `projects_by_scm_type`, `unified_job_template_table`, `workflow_job_template_node_table`. Each has `rollup_processor: None` and a new `persist_to_hourly: False` config key: `generic_collect_metrics()` persists the raw payload to `AnalyticsPayload` and returns success *without* creating an `HourlyMetricsCollection` row, and on failure it also skips the failed-collection audit row. `daily_metrics_rollup` documents in comments that these types intentionally have no rollup processor. `TASK_METADATA` examples were added for each so they can be scheduled through `POST /api/v1/tasks/schedule_recurring/` with `collect_{hourly,daily,snapshot}_metrics` and `{"collector_type": ...}`, where the scheduler supplies the default window.
+- **Insight**: A per-collector `persist_to_hourly` switch lets raw-only collectors reuse the scheduling and DB-connection plumbing of the anonymized pipeline without polluting its rollup table.
+
 ## Superseded / Semi-Obsolete
 
 ### Individual collector files (collect_job_host_summary_hourly.py, etc.)

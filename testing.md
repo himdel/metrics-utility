@@ -425,6 +425,12 @@
 - **What happened**: `TestDatabaseAuthValidation` in `tests/unit/test_dynaconf_settings.py` stacks `@pytest.mark.parametrize` over alias (`default`/`awx`) x password (`""`/set) x every libpq `sslmode` (including `None`) and builds a fresh Dynaconf settings object per case, so allowing `prefer` in #444 was a one-line change to both the validator and the expected-pass set. The dispatcher test goes past dict equality: it round-trips the broker config through `psycopg.conninfo.make_conninfo()`/`conninfo_to_dict()` so libpq itself parses the TLS parameters, and deep-copies the input to assert Django settings were not mutated. #445's resource-sync tests monkeypatch `SyncExecutor`/`get_remote_assignments` to append to a shared `events` list and assert call order (`["resources", "assignments"]`) and that `_reconcile_assignments` is not called on incomplete/error paths, alongside DAB-backed tests that use real `AssignmentTuple`s and `RoleDefinition`s.
 - **Insight**: For config validators, a full cross-product matrix makes policy changes trivial and reviewable; for connection-building code, let the real driver parse the output (`make_conninfo`) instead of trusting a hand-built dict.
 
+### Idempotent AWX demo-data seed for exercising collectors locally
+- **Repo**: ansible/metrics-service
+- **Commits**: 0deb026 (#430)
+- **What happened**: `tools/seed-awx-demo.sql` (a single PL/pgSQL `DO $$` block, run with `podman exec -i postgres psql -U awx -d awx < tools/seed-awx-demo.sql`) inserts disposable AWX data covering the four completed UTC hours before it runs: jobs, events, host summaries, workflow nodes, plus inventory, credentials, host metrics and monthly summaries, so every analytics collector returns non-empty payloads in a local compose stack. A marker job makes it safe to rerun without duplicating rows. The analytics app itself shipped with unit suites for apps, models, persist (best-effort swallowing, DataFrame/dict/None conversion), registry, tasks and views, plus cleanup and daily-rollup coverage for the new raw-only rows.
+- **Insight**: Seeds relative to "now" (last N completed hours) with an idempotency marker keep default-window collectors (previous hour / previous day) testable on any day without hand-editing timestamps.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py

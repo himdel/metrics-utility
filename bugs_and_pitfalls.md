@@ -654,6 +654,12 @@
 - **What happened**: Two pitfalls surfaced while building the PostgreSQL client-cert validators (see settings_and_configuration.md). (1) A Dynaconf `Validator(key, condition=...)` whose key does not exist is simply skipped -- the condition is never called and the validator counts as passing. The first version of the `certificate_configured` combinator (`Validator(sslcert, condition=bool) | Validator(sslkey, condition=bool)`, used as a `when=` guard) therefore evaluated true for absent keys, so the "cert and key must be set together" validator fired for every password-only deployment and broke startup. Fix: `must_exist=True` on each branch of the `when=` combinator, plus a regression test for the password-only case. (2) Dynaconf lookups are case-insensitive, but psycopg/libpq receives the literal `OPTIONS` dict keys and its parameter names are case-sensitive, so `METRICS_SERVICE_DATABASES__default__OPTIONS__SSLCERT` would pass validation yet be ignored by libpq. A validator now rejects any non-lowercase key under `DATABASES__<alias>__OPTIONS` with an actionable message.
 - **Insight**: In Dynaconf, "key missing" is not "condition false" -- any validator used as a `when=` predicate (or combined with `|`/`&`) needs `must_exist=True` to mean what it looks like; and when settings are passed through to a case-sensitive consumer, validate the literal key spelling since Dynaconf's own lookups will hide the mismatch.
 
+### DAB default filter backends turn since/until query params into exact-match lookups
+- **Repo**: ansible/metrics-service
+- **Commits**: 0deb026 (#430)
+- **What happened**: The analytics rows view (`CollectorRowsView`, a DRF `ListAPIView`) sets `filter_backends = []` because DAB's default field-lookup/filter backends would treat `?since=`/`?until=` as exact-match lookups on the model's own `since`/`until` columns, overriding the intended window-*overlap* semantics implemented in `get_queryset()`. Pagination is kept but via an `AnalyticsPaginator(DefaultPaginator)` that delegates `get_next_link`/`get_previous_link` to DRF's `PageNumberPagination`, so `next`/`previous` are absolute URLs consistent with the rest of the API.
+- **Insight**: Any query parameter whose name matches a model field will be hijacked by DAB's generic filter backends -- when a view gives a field-named param custom semantics, clear `filter_backends` and own the filtering.
+
 ## Superseded / Semi-Obsolete
 
 ### Django signals on Task model caused widespread test failures

@@ -335,6 +335,12 @@
 - **What happened**: `segment-analytics-python` was removed from `pyproject.toml` and, with its transitive packages, from `uv.lock` (-35 lines) when `StorageSegment` switched to posting directly to Segment's HTTP `/v1/batch` endpoint. The optional-import guard stayed, but now protects `import requests` and sets the same `SEGMENT_AVAILABLE` flag -- so the "analytics disabled, log and skip" behaviour in environments without the dependency is unchanged, and the log message changed from "segment module not installed" to "requests module not installed".
 - **Insight**: Swapping a vendor SDK for `requests` shrinks the runtime dependency footprint to something already present in most deployments, and the existing `try/except ImportError` + `SEGMENT_AVAILABLE` guard transfers to the new import unchanged -- keep the flag name and the graceful-skip contract, just repoint what it guards.
 
+### PyJWT floor raised to ~=2.15 for a CVE
+- **Repo**: ansible/metrics-service
+- **Commits**: 36323ac (#449)
+- **What happened**: AAP-94862/AAP-94848: `pyjwt~=2.13` -> `~=2.15` in `pyproject.toml` (plus `uv.lock`) to pick up the fix for CVE-2026-102273. No code changes were needed.
+- **Insight**: Security bumps of a direct dependency belong in `pyproject.toml`'s compatible-release floor, not just the lockfile, so downstream rebuilds cannot resolve back to the vulnerable minor.
+
 ## Superseded / Semi-Obsolete
 
 ### `segment-analytics-python` as a runtime dependency

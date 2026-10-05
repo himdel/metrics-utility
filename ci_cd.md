@@ -420,6 +420,12 @@
 - **What happened**: `codecov.yml` had the `status: project/patch: default: {target: auto, threshold: 1%}` block at the top level instead of nested under `coverage:`. Codecov does not validate unknown root keys, so the 1% tolerance was never applied and trivial drops (e.g. -0.03%) failed the status check. The block was re-indented under `coverage.status`.
 - **Insight**: Codecov silently ignores misplaced keys -- if a small coverage dip fails despite a configured threshold, check that `status` is nested under `coverage` (and validate with `curl --data-binary @codecov.yml https://codecov.io/validate`).
 
+### CI OpenAPI drift check now runs the same tools/generate-openapi.sh as developers
+- **Repo**: ansible/metrics-service
+- **Commits**: 0deb026 (#430)
+- **What happened**: The `pr-checks.yml` OpenAPI step used to call `manage.py spectacular` twice (YAML and JSON) inline, while developers were told to use `tools/generate-openapi.sh`, which regenerates both files *and* applies known manual patches to reconcile macOS/Linux differences for untyped path params and some DAB endpoints. CI now runs `bash tools/generate-openapi.sh` before the `git diff --exit-code` checks, so both sides produce the schema the same way.
+- **Insight**: If a schema-drift gate regenerates artifacts differently from the documented local command, contributors chase phantom diffs -- make CI invoke the exact script developers run.
+
 ## Superseded / Semi-Obsolete
 
 ### PR target glob `stable-*` for metrics-utility
