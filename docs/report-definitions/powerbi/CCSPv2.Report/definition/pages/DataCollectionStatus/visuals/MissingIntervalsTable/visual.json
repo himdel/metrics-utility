@@ -1,0 +1,20 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "MissingIntervalsTable",
+  "position": {"x": 16, "y": 16, "z": 0, "width": 1248, "height": 320},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_missing_intervals"}}, "Property": "file_name"}}, "queryRef": "ccspv2_missing_intervals.file_name", "displayName": "CSV filename"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_missing_intervals"}}, "Property": "until"}}, "queryRef": "ccspv2_missing_intervals.until", "displayName": "Missing from"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_missing_intervals"}}, "Property": "next_since"}}, "queryRef": "ccspv2_missing_intervals.next_since", "displayName": "Missing until"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_missing_intervals"}}, "Property": "gap"}}, "queryRef": "ccspv2_missing_intervals.gap", "displayName": "Gap in seconds"}
+          ]
+        }
+      }
+    }
+  }
+}

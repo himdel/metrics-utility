@@ -1,0 +1,412 @@
+# Descriptive report contract, derived from the current build_report pipeline.
+# This is not an executable format or a promise of native artifact generation.
+spec:
+  name: metrics-utility-report-definition
+  version: 0.1-draft
+  status: analysis
+
+report:
+  id: ccspv2
+  title: CCSPv2
+  current_output: xlsx
+  prepared_by: metrics_utility.automation_controller_billing
+  input_selection:
+    period:
+      monthly: "calendar month; dataframe engines read daily batches"
+      custom_range: "since and until dates; report selection is inclusive by day"
+    deduplication:
+      default: ccsp
+      configurable: true
+    organization_filter:
+      parameter: report_organization_filter
+      applies_to: [job_host_summary]
+      does_not_currently_apply_to: [main_jobevent]
+      note: "ReportCCSPv2 has a TODO to apply this filter to events."
+
+parameters:
+  report_period: {type: string, source: build_report}
+  price_per_node: {type: decimal, default: 0, source: METRICS_UTILITY_PRICE_PER_NODE}
+  report_sku: {type: string, source: METRICS_UTILITY_REPORT_SKU}
+  report_sku_description: {type: string, source: METRICS_UTILITY_REPORT_SKU_DESCRIPTION}
+  report_h1_heading: {type: string, source: METRICS_UTILITY_REPORT_H1_HEADING}
+  report_company_name: {type: string, source: METRICS_UTILITY_REPORT_COMPANY_NAME}
+  report_email: {type: string, source: METRICS_UTILITY_REPORT_EMAIL}
+  report_rhn_login: {type: string, source: METRICS_UTILITY_REPORT_RHN_LOGIN}
+  report_po_number: {type: string, source: METRICS_UTILITY_REPORT_PO_NUMBER}
+  report_end_user_company_name: {type: string, source: METRICS_UTILITY_REPORT_END_USER_COMPANY_NAME}
+  report_end_user_company_city: {type: string, source: METRICS_UTILITY_REPORT_END_USER_CITY}
+  report_end_user_company_state: {type: string, source: METRICS_UTILITY_REPORT_END_USER_STATE}
+  report_end_user_company_country: {type: string, source: METRICS_UTILITY_REPORT_END_USER_COUNTRY}
+  updated_date: {type: date, source: "runtime current date; displayed as MMM DD, YYYY"}
+  optional_sheets:
+    type: list[string]
+    source: METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS
+    default:
+      - ccsp_summary
+      - managed_nodes
+      - usage_by_organizations
+      - usage_by_collections
+      - usage_by_roles
+      - usage_by_modules
+    all_supported:
+      - ccsp_summary
+      - jobs
+      - managed_nodes
+      - indirectly_managed_nodes
+      - inventory_scope
+      - infrastructure_summary
+      - usage_by_organizations
+      - usage_by_collections
+      - usage_by_roles
+      - usage_by_modules
+      - managed_nodes_by_organizations
+      - data_collection_status
+
+datasets:
+  job_host_summary:
+    prepared_by: DataframeJobhostSummaryUsage
+    raw_inputs:
+      primary: job_host_summary.csv
+      fallback: main_indirectmanagednodeaudit.csv
+      selection_rule: "Use the primary CSV when nonempty; otherwise use the indirect audit CSV for that batch."
+      metadata: config.json
+      metadata_fields: [install_uuid]
+    grain: "organization, job template, host, install, remote job"
+    report_fields:
+      - organization_name
+      - job_template_name
+      - host_name
+      - original_host_name
+      - install_uuid
+      - job_remote_id
+      - host_runs
+      - task_runs
+      - first_automation
+      - last_automation
+      - job_created
+      - managed_node_type
+      - managed_node_types_set
+      - canonical_facts
+      - facts
+      - events
+      - host_names_before_dedup
+    preparation:
+      - "Normalize organization and host names; use ansible_host_variable when populated."
+      - "Sum task result counters; discard direct managed-node rows without reachable tasks."
+      - "Aggregate daily batches and apply the selected CCSP deduplicator."
+  main_jobevent:
+    prepared_by: DataframeContentUsage
+    raw_inputs: [main_jobevent.csv, config.json]
+    metadata_fields: [install_uuid]
+    grain: "host, module, collection, role, install, remote job"
+    report_fields: [host_name, module_name, collection_name, role_name, install_uuid, job_remote_id, task_runs, duration]
+    preparation:
+      - "Discard events without task_action or host_name."
+      - "Use resolved_action/resolved_role when available; normalize role and collection names."
+      - "Aggregate task count and duration across daily batches; missing duration becomes zero."
+  main_host:
+    prepared_by: DataframeInventoryScope
+    raw_inputs:
+      preferred: main_host.csv
+      fallback: main_host_daily.csv
+      metadata: config.json
+      metadata_fields: [install_uuid]
+    grain: "host, install"
+    report_fields: [host_name, install_uuid, last_automation, organizations, inventories, canonical_facts, facts, serials, host_names_before_dedup]
+    preparation:
+      - "Normalize host names; aggregate inventory, organization, facts, and serial values."
+      - "Apply the selected CCSP deduplicator."
+  data_collection_status:
+    prepared_by: DataframeCollectionStatus
+    raw_inputs: [data_collection_status.csv]
+    grain: "one collector execution interval"
+    report_fields: [collection_start_timestamp, since, until, file_name, status, elapsed]
+    preparation:
+      - "Concatenate intervals over the requested report period and parse timestamps."
+
+presentation:
+  workbook_baseline:
+    sheet_order: "creation order below; managed_nodes_by_organizations expands at its position"
+    empty_values: "Retain the report-specific empty result/message behavior."
+    structured_values: "Facts, events, and set/list values are currently rendered as JSON strings in XLSX."
+    default_font: Arial
+    price_format: "$#,##0.00"
+
+  sheets:
+    - id: usage_reporting
+      title: Usage Reporting
+      enabled_by: ccsp_summary
+      powerbi_entity: ccspv2_usage_reporting
+      powerbi_page: UsageReporting
+      powerbi_context_fields: [report_h1_heading, report_company_name, report_email, report_rhn_login, report_period, report_po_number, updated_date]
+      kind: billing_form
+      dataset: job_host_summary
+      filter: "managed_node_type == DIRECT"
+      header:
+        heading: report_h1_heading
+        customer_rows:
+          - ["CCSP Company Name", report_company_name]
+          - ["CCSP Email", report_email]
+          - ["CCSP RHN Login", report_rhn_login]
+          - ["Report Period (YYYY-MM)", report_period]
+        purchase_order:
+          label: PO Number
+          value: report_po_number
+          cells: [E4, F4]
+        updated:
+          value: updated_date
+          cell: H1
+      table:
+        grain: "single billing row"
+        fields:
+          - {id: end_user_company_name, label: End User Company Name, value: report_end_user_company_name}
+          - {id: internal_usage, label: "Enter 'X' to indicate\nInteral Usage", value: "blank input"}
+          - {id: end_user_city, label: "End User\nCity", value: report_end_user_company_city}
+          - {id: end_user_state, label: "End User\nState/Prov", value: report_end_user_company_state}
+          - {id: end_user_country, label: "Country Where\nSKU Consumed", value: report_end_user_company_country}
+          - {id: sku_number, label: SKU Number, value: report_sku}
+          - {id: quantity_consumed, label: Quantity, expression: "count_distinct(host_name)"}
+          - {id: sku_description, label: SKU Description, value: report_sku_description}
+          - {id: unit_price, label: SKU Unit Price, expression: "round(price_per_node, 2)", format: currency}
+          - {id: extended_unit_price, label: "SKU Extended Unit\nPrice", expression: "quantity_consumed * unit_price", format: currency}
+          - {id: notes, label: Notes, value: "blank input"}
+      layout:
+        merged_heading_cells: true
+        blank_entry_rows: 5
+        extended_price_formula_filled_for_blank_rows: true
+        grand_total: "SUM of extended_unit_price rows"
+      empty_data: "When no direct hosts are present, the populated billing row and grand total are omitted; blank entry rows remain."
+
+    - id: jobs
+      title: Jobs
+      enabled_by: jobs
+      powerbi_entity: ccspv2_jobs
+      powerbi_page: Jobs
+      dataset: job_host_summary
+      group_by: [organization_name, job_template_name]
+      fields:
+        - {id: job_template_name, label: "Job template\nname"}
+        - {id: organization_name, label: "Organization\nname"}
+        - {id: job_runs, label: Job runs, expression: "count_distinct(install_uuid, job_remote_id)"}
+        - {id: host_runs_unique, label: "Unique managed nodes\nautomated", expression: "count_distinct(host_name)"}
+        - {id: host_runs, label: "Non-unique managed\nnodes automated", expression: "count(host_name)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: first_run, label: "First\nrun", expression: "min(job_created)"}
+        - {id: last_run, label: "Last\nrun", expression: "max(job_created)"}
+
+    - id: managed_nodes
+      title: Managed nodes
+      enabled_by: managed_nodes
+      powerbi_entity: ccspv2_managed_nodes
+      powerbi_page: ManagedNodes
+      dataset: job_host_summary
+      filter: "managed_node_type == DIRECT"
+      group_by: [host_name]
+      fields:
+        - {id: host_name, label: Host name}
+        - {id: organizations, label: "Automated by\norganizations", expression: "count_distinct(organization_name)"}
+        - {id: host_runs, label: Job runs, expression: "count(host_name)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: first_automation, label: "First\nautomation", expression: "min(first_automation)"}
+        - {id: last_automation, label: "Last\nautomation", expression: "max(last_automation)"}
+      conditional_columns:
+        enabled_by: managed_nodes_by_organizations
+        operation: "pivot max(last_automation) by organization_name"
+      dedup_columns:
+        when: "experimental dedup is enabled and managed_nodes_by_organizations is disabled"
+        fields:
+          - {id: host_names_before_dedup, label: "Host names\nbefore\ndeduplication"}
+          - {id: host_names_before_dedup_count, label: "Host names\nbefore\ndeduplication\ncount"}
+
+    - id: indirectly_managed_nodes
+      title: Indirectly Managed nodes
+      enabled_by: indirectly_managed_nodes
+      powerbi_entity: ccspv2_indirectly_managed_nodes
+      powerbi_page: IndirectlyManagedNodes
+      dataset: job_host_summary
+      filter: "managed_node_type == INDIRECT"
+      group_by: [host_name]
+      fields:
+        - {id: host_name, label: Host name}
+        - {id: organizations, label: "Automated by\norganizations", expression: "count_distinct(organization_name)"}
+        - {id: host_runs, label: Job runs, expression: "count(host_name)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: first_automation, label: "First\nautomation", expression: "min(first_automation)"}
+        - {id: last_automation, label: "Last\nautomation", expression: "max(last_automation)"}
+        - {id: canonical_facts, label: "Canonical\nFacts", value_type: json}
+        - {id: facts, label: Facts, value_type: json}
+        - {id: managed_node_types_set, label: "Manage\nNode\nTypes", value_type: list}
+        - {id: events, label: Events, value_type: list}
+        - {id: host_names_before_dedup, label: "Host names\nbefore\ndeduplication", when: "experimental dedup is enabled"}
+        - {id: host_names_before_dedup_count, label: "Host names\nbefore\ndeduplication\ncount", when: "experimental dedup is enabled"}
+
+    - id: inventory_scope
+      title: Inventory Scope
+      enabled_by: inventory_scope
+      powerbi_entity: ccspv2_inventory_scope
+      powerbi_page: InventoryScope
+      dataset: main_host
+      fields:
+        - {id: host_name, label: Host name}
+        - {id: last_automation, label: "Last\nAutomation"}
+        - {id: organizations, label: Organizations, value_type: list}
+        - {id: inventories, label: Inventories, value_type: list}
+        - {id: canonical_facts, label: Canonical Facts, value_type: json}
+        - {id: facts, label: Facts, value_type: json}
+        - {id: host_names_before_dedup, label: "Host names\nbefore\ndeduplication", when: "experimental dedup is enabled"}
+        - {id: host_names_before_dedup_count, label: "Host names\nbefore\ndeduplication\ncount", when: "experimental dedup is enabled"}
+      excludes: [install_uuid]
+
+    - id: infrastructure_summary
+      title: Infrastructure Summary
+      enabled_by: infrastructure_summary
+      powerbi_entity: ccspv2_infrastructure_summary
+      powerbi_page: InfrastructureSummary
+      dataset: job_host_summary
+      filter: "managed_node_type == INDIRECT"
+      derive:
+        - "Read infra_type, infra_bucket, and device_type from facts JSON; use Unknown for missing/unreadable values."
+      group_by: [infra_type, infra_bucket, device_type]
+      fields:
+        - {id: infra_type, label: Infrastructure}
+        - {id: infra_bucket, label: Device Category}
+        - {id: device_type, label: Device Type}
+        - {id: indirect_hosts_unique, label: Unique Nodes, expression: "count_distinct(host_name)"}
+        - {id: indirect_hosts_total, label: Total Nodes, expression: "count(host_name)"}
+      empty_message: No indirect nodes found
+
+    - id: usage_by_organizations
+      title: Usage by organizations
+      enabled_by: usage_by_organizations
+      powerbi_entity: ccspv2_usage_by_organizations
+      powerbi_page: UsageByOrganizations
+      dataset: job_host_summary
+      group_by: [organization_name]
+      fields:
+        - {id: organization_name, label: Organization name}
+        - {id: job_runs, label: Job runs, expression: "count_distinct(install_uuid, job_remote_id)"}
+        - {id: host_runs_unique, label: "Unique managed nodes\nautomated", expression: "count_distinct(host_name) where managed_node_type == DIRECT"}
+        - {id: host_runs, label: "Non-unique managed\nnodes automated", expression: "count(host_name) where managed_node_type == DIRECT"}
+        - {id: indirect_host_runs_unique, label: "Unique indirect managed nodes\nautomated", expression: "count_distinct(host_name) where managed_node_type == INDIRECT", when: "indirectly_managed_nodes is enabled"}
+        - {id: indirect_host_runs, label: "Non-unique indirect managed\nnodes automated", expression: "count(host_name) where managed_node_type == INDIRECT", when: "indirectly_managed_nodes is enabled"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+
+    - id: usage_by_collections
+      title: Usage by collections
+      enabled_by: usage_by_collections
+      powerbi_entity: ccspv2_usage_by_collections
+      powerbi_page: UsageByCollections
+      dataset: main_jobevent
+      group_by: [collection_name]
+      include_indirect_rows_when: indirectly_managed_nodes
+      indirect_attribution: "Extract collection names from events; attribute the row task_runs to each collection and use duration 0."
+      fields:
+        - {id: collection_name, label: Collection name}
+        - {id: host_runs_unique, label: "Unique managed nodes\nautomated", expression: "count_distinct(host_name)"}
+        - {id: host_runs, label: "Non-unique managed\nnodes automated", expression: "count_distinct(host_composite_id)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: duration, label: "Duration of task\nruns [seconds]", expression: "sum(duration)"}
+
+    - id: usage_by_roles
+      title: Usage by roles
+      enabled_by: usage_by_roles
+      powerbi_entity: ccspv2_usage_by_roles
+      powerbi_page: UsageByRoles
+      dataset: main_jobevent
+      group_by: [role_name]
+      fields:
+        - {id: role_name, label: Role name}
+        - {id: host_runs_unique, label: "Unique managed nodes\nautomated", expression: "count_distinct(host_name)"}
+        - {id: host_runs, label: "Non-unique managed\nnodes automated", expression: "count_distinct(host_composite_id)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: duration, label: "Duration of task\nruns [seconds]", expression: "sum(duration)"}
+
+    - id: usage_by_modules
+      title: Usage by modules
+      enabled_by: usage_by_modules
+      powerbi_entity: ccspv2_usage_by_modules
+      powerbi_page: UsageByModules
+      dataset: main_jobevent
+      group_by: [module_name]
+      fields:
+        - {id: module_name, label: Module name}
+        - {id: host_runs_unique, label: "Unique managed nodes\nautomated", expression: "count_distinct(host_name)"}
+        - {id: host_runs, label: "Non-unique managed\nnodes automated", expression: "count_distinct(host_composite_id)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: duration, label: "Duration of task\nruns [seconds]", expression: "sum(duration)"}
+
+    - id: managed_nodes_by_organizations
+      title: "{organization_name}"
+      enabled_by: managed_nodes_by_organizations
+      powerbi_entity: ccspv2_managed_nodes_by_organizations
+      powerbi_page: ManagedNodesByOrganizations
+      dataset: job_host_summary
+      fan_out:
+        distinct_values: organization_name
+        worksheet_per_value: true
+      note: "Each organization sheet includes all job_host_summary rows for that organization; unlike Managed nodes, this view is not restricted to DIRECT rows."
+      powerbi_additional_fields: [organization_name]
+      powerbi_group_by: [organization_name, host_name]
+      group_by: [host_name]
+      fields:
+        - {id: host_name, label: Host name}
+        - {id: host_runs, label: Job runs, expression: "count(host_name)"}
+        - {id: task_runs, label: "Number of task\nruns", expression: "sum(task_runs)"}
+        - {id: first_automation, label: "First\nautomation", expression: "min(first_automation)"}
+        - {id: last_automation, label: "Last\nautomation", expression: "max(last_automation)"}
+        - {id: host_names_before_dedup, label: "Host names\nbefore\ndeduplication", when: "experimental dedup is enabled"}
+        - {id: host_names_before_dedup_count, label: "Host names\nbefore\ndeduplication\ncount", when: "experimental dedup is enabled"}
+
+    - id: data_collection_status
+      title: Data collection status
+      enabled_by: data_collection_status
+      dataset: data_collection_status
+      powerbi_page: DataCollectionStatus
+      tables:
+        - id: missing_intervals
+          powerbi_entity: ccspv2_missing_intervals
+          derive:
+            - "Add zero-length boundary intervals at requested start/end for every file_name."
+            - "Keep status == ok; sort by file_name/since/until; calculate next_since with lag/lead."
+            - "Keep gaps greater than 2 seconds; gap = next_since - until."
+          fields:
+            - {id: file_name, label: CSV filename}
+            - {id: until, label: Missing from}
+            - {id: next_since, label: Missing until}
+            - {id: gap, label: Gap in seconds}
+        - id: collection_intervals
+          powerbi_entity: ccspv2_collection_intervals
+          derive:
+            - "Calculate time since previous collection within each file_name."
+            - "Color time-difference values green below 2x median, yellow at/above 2x, red at/above 3x."
+          fields:
+            - {id: collection_start_timestamp, label: Collection timestamp}
+            - {id: since, label: Filter since}
+            - {id: until, label: Filter until}
+            - {id: file_name, label: CSV filename}
+            - {id: status, label: Status}
+            - {id: elapsed, label: Elapsed}
+            - {id: time_diff, label: "Time since\nprevious collection"}
+
+targets:
+  tableau:
+    native_artifact: Tableau workbook (.twb/.twbx)
+    mapping: "Map each static definition sheet to a Tableau worksheet or dashboard view."
+    organization_fan_out: "Desired output is one worksheet per organization. The known MIT Document API cannot create arbitrary worksheets/workbooks; use a single organization-filtered view unless a supported authoring path is selected."
+    form_layout: "Approximate as a dashboard/table; do not claim cell-grid fidelity."
+    generation_constraint: "Tableau Document API is MIT-licensed but unsupported and does not author complete workbooks from scratch."
+  powerbi:
+    native_artifact: "Power BI project: PBIR report plus semantic model (TMDL or other supported model source)"
+    starter_project: powerbi/CCSPv2.pbip
+    mapping: "Map each static definition sheet to a report page with table/card visuals."
+    organization_fan_out: "Use one long-form table page with an organization column/filter; a report-build generator could instead duplicate a static page for each organization."
+    semantic_model_contract:
+      binding: "External semantic model referenced through definition.pbir byConnection."
+      grain: "One prepared model entity per report table, with field IDs matching each view's field IDs; derive entity names from each sheet's powerbi_entity."
+      context_entity: ccspv2_usage_reporting
+      organization_page_representation: "One filterable long-form table entity including organization_name, rather than dynamic PBIR pages."
+      managed_nodes_organization_pivot: "Represent organization last-automation values in the normalized by-organization entity; PBIR uses stable columns."
+      conditional_columns: "Keep the union of optional columns in the model schema and return nulls when the corresponding dedup/indirect option is disabled."
+    measure_language: DAX
+    form_layout: "Approximate as visuals; cell merges, blank entry rows, and spreadsheet formulas are not preserved."
+    generation_constraint: "Use publicly documented PBIR schemas and validate generated projects in Power BI."

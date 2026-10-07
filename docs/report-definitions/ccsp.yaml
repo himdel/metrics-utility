@@ -1,0 +1,163 @@
+# Descriptive CCSP v1 report contract. Shared dataset/view references point to
+# equivalent definitions in ccspv2.yaml; this file records v1-specific changes.
+spec:
+  name: metrics-utility-report-definition
+  version: 0.1-draft
+  status: analysis
+
+report:
+  id: ccsp
+  title: CCSP
+  current_output: xlsx
+  prepared_by: metrics_utility.automation_controller_billing
+  input_selection:
+    period:
+      monthly: "calendar month; dataframe engines read daily batches"
+      custom_range: "since and until dates; report selection is inclusive by day"
+    deduplication:
+      default: ccsp
+      configurable: true
+    organization_filter:
+      applies_to: []
+      note: "The v1 report builder does not apply report_organization_filter."
+
+parameters:
+  report_period: {type: string, source: build_report}
+  price_per_node: {type: decimal, default: 0, source: METRICS_UTILITY_PRICE_PER_NODE}
+  report_sku: {type: string, source: METRICS_UTILITY_REPORT_SKU}
+  report_sku_description: {type: string, source: METRICS_UTILITY_REPORT_SKU_DESCRIPTION}
+  report_h1_heading: {type: string, source: METRICS_UTILITY_REPORT_H1_HEADING}
+  report_company_name: {type: string, source: METRICS_UTILITY_REPORT_COMPANY_NAME}
+  report_email: {type: string, source: METRICS_UTILITY_REPORT_EMAIL}
+  report_rhn_login: {type: string, source: METRICS_UTILITY_REPORT_RHN_LOGIN}
+  report_company_business_leader: {type: string, source: METRICS_UTILITY_REPORT_COMPANY_BUSINESS_LEADER}
+  report_company_procurement_leader: {type: string, source: METRICS_UTILITY_REPORT_COMPANY_PROCUREMENT_LEADER}
+  optional_sheets:
+    type: list[string]
+    source: METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS
+    default:
+      - ccsp_summary
+      - managed_nodes
+      - usage_by_organizations
+      - usage_by_collections
+      - usage_by_roles
+      - usage_by_modules
+    all_validated:
+      - ccsp_summary
+      - managed_nodes
+      - indirectly_managed_nodes
+      - inventory_scope
+      - infrastructure_summary
+      - usage_by_collections
+      - usage_by_roles
+      - usage_by_modules
+      - usage_by_organizations
+      - managed_nodes_by_organizations
+
+# The first three dataframe definitions are shared with CCSPv2. The common
+# source lineage and prepared-field contracts live in ccspv2.yaml.
+datasets:
+  job_host_summary:
+    reuse: {file: ccspv2.yaml, section: datasets, id: job_host_summary}
+  main_jobevent:
+    reuse: {file: ccspv2.yaml, section: datasets, id: main_jobevent}
+  main_host:
+    reuse: {file: ccspv2.yaml, section: datasets, id: main_host}
+
+presentation:
+  sheets:
+    - id: usage_reporting
+      title: Usage Reporting
+      enabled_by: always
+      extraction_option: ccsp_summary
+      kind: grouped_billing_form
+      dataset: job_host_summary
+      filter: "managed_node_type == DIRECT"
+      group_by: [organization_name]
+      header:
+        heading: report_h1_heading
+        customer_rows:
+          - ["CCSP Company Name", report_company_name]
+          - ["CCSP Email", report_email]
+          - ["CCSP RHN Login", report_rhn_login]
+          - ["Report Period (YYYY-MM)", report_period]
+          - ["Company Business leader ", report_company_business_leader]
+          - ["Company Procurement leader ", report_company_procurement_leader]
+          - ["Periodicity", "Report is submitted monthly"]
+        section_heading: Monthly payment
+      sku_description_table:
+        fields:
+          - {id: sku, label: SKU, value: report_sku}
+          - {id: sku_description, label: SKU Description, value: report_sku_description}
+          - {id: spacer, label: "", value: ""}
+          - {id: term, label: Term, value: MONTH}
+          - {id: unit_of_measure, label: Unit of Measure, value: MANAGED NODE}
+          - {id: currency, label: Currency, value: USD}
+          - {id: msrp, label: MSRP, value: "string(price_per_node)"}
+      table:
+        fields:
+          - {id: organization_name, label: "Organization name (i.e. company name)"}
+          - {id: internal_usage, label: "Please Mark With An 'X' If The Usage Is Internal.\nOtherwise Leave Blank", value: "blank input"}
+          - {id: quantity_consumed, label: "Red Hat SKU\n Quantity Consumed", expression: "count_distinct(host_name)"}
+          - {id: unit_price, label: "Subscription Fee\n (SKU Unit Price)", expression: "round(price_per_node, 2)", format: currency}
+          - {id: extended_unit_price, label: "Extended\n Subscription Fees\n (SKU Extended Unit Price)", expression: "quantity_consumed * unit_price", format: currency}
+        total:
+          label: Sum of monthly payment
+          field: extended_unit_price
+          expression: "sum(extended_unit_price)"
+      empty_data: "Keep the column header; omit organization rows and the total when there are no direct managed hosts."
+
+    - id: managed_nodes
+      title: Managed nodes
+      enabled_by: managed_nodes
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: managed_nodes}
+      overrides:
+        conditional_columns: null
+        dedup_columns:
+          when: "experimental dedup is enabled"
+      note: "The v1 builder always uses the base managed-node view; managed_nodes_by_organizations does not alter it."
+
+    - id: indirectly_managed_nodes
+      title: Indirectly Managed nodes
+      enabled_by: indirectly_managed_nodes
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: indirectly_managed_nodes}
+
+    - id: inventory_scope
+      title: Inventory Scope
+      enabled_by: inventory_scope
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: inventory_scope}
+
+    - id: usage_by_collections
+      title: Usage by collections
+      enabled_by: usage_by_collections
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: usage_by_collections}
+
+    - id: usage_by_roles
+      title: Usage by roles
+      enabled_by: usage_by_roles
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: usage_by_roles}
+
+    - id: usage_by_modules
+      title: Usage by modules
+      enabled_by: usage_by_modules
+      reuse: {file: ccspv2.yaml, section: presentation.sheets, id: usage_by_modules}
+
+  accepted_but_not_rendered:
+    - id: infrastructure_summary
+      behavior: "Log a warning and skip; available only in CCSPv2."
+    - id: usage_by_organizations
+      behavior: "Accepted by validation but no v1 worksheet is built."
+    - id: managed_nodes_by_organizations
+      behavior: "Accepted by validation but no v1 per-organization worksheets or managed-node pivot columns are built."
+
+targets:
+  tableau:
+    reuse: {file: ccspv2.yaml, section: targets, id: tableau}
+    overrides:
+      organization_fan_out: "Not applicable; v1 has no organization-specific worksheets."
+    report_specific: "Usage Reporting is one worksheet/view with organization as a row dimension."
+  powerbi:
+    reuse: {file: ccspv2.yaml, section: targets, id: powerbi}
+    overrides:
+      organization_fan_out: "Not applicable; v1 has no organization-specific report pages."
+    report_specific: "Usage Reporting is one page/table visual with organization as a row dimension."

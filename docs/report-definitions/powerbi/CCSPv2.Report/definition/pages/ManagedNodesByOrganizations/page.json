@@ -1,0 +1,14 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.1.0/schema.json",
+  "name": "ManagedNodesByOrganizations",
+  "displayName": "Managed nodes by organizations",
+  "displayOption": "FitToWidth",
+  "width": 1280,
+  "height": 720,
+  "annotations": [
+    {
+      "name": "metrics-utility-target-adaptation",
+      "value": "Long-form organization and host table; filter by organization instead of generating data-dependent page tabs."
+    }
+  ]
+}

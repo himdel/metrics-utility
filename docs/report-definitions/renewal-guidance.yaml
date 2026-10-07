@@ -1,0 +1,228 @@
+# Descriptive definition of build_report's Renewal Guidance report.
+spec:
+  name: metrics-utility-report-definition
+  version: 0.1-draft
+  status: source-derived
+
+report:
+  id: renewal_guidance
+  title: Renewal Guidance
+  current_output: xlsx
+  prepared_by: metrics_utility.automation_controller_billing
+  input_selection:
+    required_parameter: opt_since
+    report_period: "since_date through until_date; until_date defaults to today"
+    database: awx / Controller
+    source_until: null
+    empty_data: "build_report exits without writing a workbook when host_metric is empty."
+    deduplicator:
+      default: renewal
+      configurable:
+        - renewal
+        - renewal-hostname
+        - renewal-experimental
+      iterations_parameter: REPORT_RENEWAL_GUIDANCE_DEDUP_ITERATIONS
+      default_iterations: 3
+
+parameters:
+  since: {type: datetime, source: --since, required: true}
+  ephemeral_days: {type: integer, source: --ephemeral, default: null, unit: days, month_conversion: "1 month = 30 days"}
+  deduplicator: {type: string, source: METRICS_UTILITY_DEDUPLICATOR, default: renewal}
+  dedup_iterations: {type: integer, source: REPORT_RENEWAL_GUIDANCE_DEDUP_ITERATIONS, default: 3}
+  report_period: {type: string, source: build_report}
+  updated_date: {type: date, source: "runtime current date; displayed as MMM DD, YYYY"}
+  optional_sheets:
+    type: list[string]
+    source: METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS
+    default:
+      - ccsp_summary
+      - managed_nodes
+      - usage_by_organizations
+      - usage_by_collections
+      - usage_by_roles
+      - usage_by_modules
+    supported_by_report_builder: [managed_nodes]
+    note: "The shared option variable defaults to the CCSP option list; only managed_nodes affects this report. RENEWAL_GUIDANCE has no VALID_SHEETS entry."
+
+source:
+  dataset: host_metric
+  collector: metrics_utility.library.collectors.controller.main_hostmetric
+  query:
+    from: main_hostmetric
+    left_join: main_host
+    join_condition: main_host.name == main_hostmetric.hostname
+    window_predicate: "last_automation >= since OR last_deleted >= since (until is not supplied by this report flow)"
+    selected_raw_fields:
+      - hostname
+      - host_id
+      - first_automation
+      - last_automation
+      - automated_counter
+      - deleted_counter
+      - last_deleted
+      - deleted
+      - id
+      - used_in_inventories
+      - ansible_product_serial
+      - ansible_machine_id
+      - ansible_host_variable
+      - ansible_connection_variable
+      - ansible_facts.ansible_product_serial
+      - ansible_facts.ansible_machine_id
+      - main_host.variables.ansible_host
+      - main_host.variables.ansible_connection
+    post_query_filter:
+      expression: "last_automation >= since"
+      note: "This second filter can discard deletion-only rows that passed the SQL last_deleted predicate."
+    post_query_types:
+      - "Parse automation/deletion timestamps; make them timezone-naive for report calculations."
+
+deduplication:
+  current_default: DedupRenewal
+  input: host_metric
+  default_behavior:
+    - "Normalize empty host variables and empty/NA serial identifiers to null."
+    - "Group on exact hostname, then iteratively expand duplicate groups through hostname, ansible_host_variable, product serial, and machine ID keys."
+    - "Run up to dedup_iterations expansion rounds."
+    - "Choose a representative hostname by preferring non-deleted, then most recently automated rows."
+    - "Aggregate automation/deletion counters and timestamps; add record counts and comma-separated identity metadata."
+  output_fields:
+    - {id: hostname, type: string}
+    - {id: deleted, type: boolean}
+    - {id: first_automation, type: datetime}
+    - {id: last_automation, type: datetime}
+    - {id: automated_counter, type: integer}
+    - {id: deleted_counter, type: integer}
+    - {id: last_deleted, type: datetime}
+    - {id: hostmetric_record_count, type: integer, derived: "count distinct source hostname values in group"}
+    - {id: hostmetric_record_count_active, type: integer, derived: "count distinct non-deleted source hostnames in group"}
+    - {id: hostmetric_record_count_deleted, type: integer, derived: "count distinct deleted source hostnames in group"}
+    - {id: hostnames, type: string, derived: "comma-separated source hostnames"}
+    - {id: ansible_host_variables, type: string, derived: "comma-separated ansible_host_variable values"}
+    - {id: ansible_product_serials, type: string, derived: "comma-separated product serial values"}
+    - {id: ansible_machine_ids, type: string, derived: "comma-separated machine IDs"}
+  alternatives:
+    renewal-hostname: "Use ansible_host_variable or hostname for hostname-only duplicate grouping."
+    renewal-experimental: "Apply hostname grouping, then merge groups by product serial and machine ID."
+
+calculations:
+  days_automated:
+    expression: "max(0, days(last_automation - first_automation))"
+  ephemeral_cutoff:
+    expression: "floor_to_day(now - (ephemeral_days - 1 days))"
+    note: "The report uses system now, not the end of the selected report period."
+  ephemeral_classification:
+    active_ephemeral: "not deleted AND days_automated <= ephemeral_days AND first_automation <= ephemeral_cutoff"
+    active_non_ephemeral: "not deleted AND (days_automated > ephemeral_days OR first_automation > ephemeral_cutoff)"
+  concurrent_ephemeral_usage:
+    source_filter: "ephemeral classification with_deleted=true (deleted rows may contribute)"
+    windows:
+      duration: ephemeral_days
+      step: 1 day
+      start: since_date
+      include_only_complete_windows: true
+      end_exclusive: "until_date + 1 day"
+    per_window_measure: "count_distinct(hostname) where last_automation >= window_start AND first_automation <= window_end"
+    summary_measure: "max(ephemeral_hosts over windows)"
+    precondition: "At least one complete window must be generated when ephemeral_days is enabled."
+
+presentation:
+  sheets:
+    - id: usage_reporting
+      title: Usage Reporting
+      enabled_by: always
+      heading: Renewal guidance
+      header:
+        report_period: ["Report Period (YYYY-MM-DD, YYYY-MM-DD)", report_period]
+        updated: {expression: "concat('Updated: ', updated_date)", cell: D1}
+      table:
+        columns:
+          - {id: description, label: Description}
+          - {id: quantity, label: Quantity}
+        rows:
+          - when: "ephemeral_days is null or zero"
+            values:
+              - {description: Automated hosts, quantity: "count_distinct(hostname) where not deleted"}
+          - when: "ephemeral_days is positive"
+            values:
+              - {description: Automated hosts, quantity: "count_distinct(hostname) where active_non_ephemeral"}
+              - {description: Ephemeral automated hosts total, quantity: "count_distinct(hostname) where active_ephemeral"}
+              - {description: "Ephemeral automated hosts maximum\nconcurrent usage in defined interval", quantity: "max(concurrent_ephemeral_usage.ephemeral_hosts)"}
+          - values:
+              - {description: Deleted Automated hosts, quantity: "count_distinct(hostname) where deleted"}
+
+    - id: managed_nodes
+      title: Managed nodes
+      enabled_by: managed_nodes
+      when: "ephemeral_days is null or zero"
+      dataset: host_metric
+      filter: "not deleted"
+      fields: host_metric_detail
+
+    - id: managed_nodes_non_ephemeral
+      title: Managed nodes
+      enabled_by: managed_nodes
+      when: "ephemeral_days is positive"
+      dataset: host_metric
+      filter: active_non_ephemeral
+      fields: host_metric_detail
+
+    - id: managed_nodes_ephemeral
+      title: Managed nodes ephemeral
+      enabled_by: managed_nodes
+      when: "ephemeral_days is positive"
+      dataset: host_metric
+      filter: active_ephemeral
+      fields: host_metric_detail
+
+    - id: managed_nodes_ephemeral_usage
+      title: Managed nodes ephemeral usage
+      enabled_by: managed_nodes
+      when: "ephemeral_days is positive"
+      dataset: ephemeral_usage_windows
+      fields:
+        - {id: window_start, label: "Start of the\nephemeral window"}
+        - {id: window_end, label: "End of the\nephemeral window"}
+        - {id: ephemeral_hosts, label: Ephemeral automated hosts}
+
+    - id: deleted_managed_nodes
+      title: Deleted Managed nodes
+      enabled_by: managed_nodes
+      dataset: host_metric
+      filter: "deleted"
+      fields: host_metric_detail
+      always_include_with_option: true
+
+  field_sets:
+    host_metric_detail:
+      - {id: hostname, label: Host name, source: hostname}
+      - {id: first_automation, label: "First\nautomation"}
+      - {id: last_automation, label: "Last\nautomation"}
+      - {id: automated_counter, label: "Number of\nAutomations"}
+      - {id: days_automated, label: "Number of days\nbetween first_automation\nand last_automation"}
+      - {id: deleted_counter, label: "Number of\nDeletions"}
+      - {id: last_deleted, label: "Last\ndeleted"}
+      - {id: hostmetric_record_count, label: "HostMetric\nrecord count"}
+      - {id: hostmetric_record_count_active, label: "HostMetric active\nrecord count"}
+      - {id: hostmetric_record_count_deleted, label: "HostMetric deleted\nrecord count"}
+      - {id: hostnames, label: Host names, value_type: string}
+      - {id: ansible_host_variables, label: Variables ansible_host, value_type: string}
+      - {id: ansible_product_serials, label: Serial Numbers, value_type: string}
+      - {id: ansible_machine_ids, label: Machine UUIDs, value_type: string}
+
+  source_alignment:
+    - "DedupRenewal derives hostmetric_record_count*, hostnames, ansible_host_variables, ansible_product_serials, and ansible_machine_ids from raw collector fields."
+    - "Without the dedup stage, these detail-sheet fields are not in main_hostmetric's SQL projection."
+    - "host_id, id, used_in_inventories, and ansible_connection_variable are collected but not displayed."
+
+targets:
+  tableau:
+    reuse: {file: ccspv2.yaml, section: targets, id: tableau}
+    overrides:
+      organization_fan_out: "Not applicable; Renewal Guidance has no organization-specific worksheets."
+    report_specific: "Map the summary and host-detail tables to views; precompute lifecycle classification and ephemeral windows for shared semantics."
+  powerbi:
+    reuse: {file: ccspv2.yaml, section: targets, id: powerbi}
+    overrides:
+      organization_fan_out: "Not applicable; Renewal Guidance has no organization-specific report pages."
+    report_specific: "Map the summary and host-detail tables to pages; a prepared ephemeral-window dataset avoids DAX/LOD drift."

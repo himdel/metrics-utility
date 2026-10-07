@@ -1,0 +1,21 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "InfrastructureTable",
+  "position": {"x": 16, "y": 16, "z": 0, "width": 1248, "height": 688},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_infrastructure_summary"}}, "Property": "infra_type"}}, "queryRef": "ccspv2_infrastructure_summary.infra_type", "displayName": "Infrastructure"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_infrastructure_summary"}}, "Property": "infra_bucket"}}, "queryRef": "ccspv2_infrastructure_summary.infra_bucket", "displayName": "Device Category"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_infrastructure_summary"}}, "Property": "device_type"}}, "queryRef": "ccspv2_infrastructure_summary.device_type", "displayName": "Device Type"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_infrastructure_summary"}}, "Property": "indirect_hosts_unique"}}, "queryRef": "ccspv2_infrastructure_summary.indirect_hosts_unique", "displayName": "Unique Nodes"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_infrastructure_summary"}}, "Property": "indirect_hosts_total"}}, "queryRef": "ccspv2_infrastructure_summary.indirect_hosts_total", "displayName": "Total Nodes"}
+          ]
+        }
+      }
+    }
+  }
+}

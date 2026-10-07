@@ -1,0 +1,23 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "CollectionIntervalsTable",
+  "position": {"x": 16, "y": 360, "z": 0, "width": 1248, "height": 320},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "collection_start_timestamp"}}, "queryRef": "ccspv2_collection_intervals.collection_start_timestamp", "displayName": "Collection timestamp"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "since"}}, "queryRef": "ccspv2_collection_intervals.since", "displayName": "Filter since"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "until"}}, "queryRef": "ccspv2_collection_intervals.until", "displayName": "Filter until"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "file_name"}}, "queryRef": "ccspv2_collection_intervals.file_name", "displayName": "CSV filename"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "status"}}, "queryRef": "ccspv2_collection_intervals.status", "displayName": "Status"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "elapsed"}}, "queryRef": "ccspv2_collection_intervals.elapsed", "displayName": "Elapsed"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_collection_intervals"}}, "Property": "time_diff"}}, "queryRef": "ccspv2_collection_intervals.time_diff", "displayName": "Time since previous collection"}
+          ]
+        }
+      }
+    }
+  }
+}

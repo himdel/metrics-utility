@@ -1,0 +1,34 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "UsageTable",
+  "position": {"x": 16, "y": 16, "z": 0, "width": 1248, "height": 688},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_h1_heading"}}, "queryRef": "ccspv2_usage_reporting.report_h1_heading", "displayName": "Report heading"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_company_name"}}, "queryRef": "ccspv2_usage_reporting.report_company_name", "displayName": "CCSP Company Name"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_email"}}, "queryRef": "ccspv2_usage_reporting.report_email", "displayName": "CCSP Email"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_rhn_login"}}, "queryRef": "ccspv2_usage_reporting.report_rhn_login", "displayName": "CCSP RHN Login"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_period"}}, "queryRef": "ccspv2_usage_reporting.report_period", "displayName": "Report period"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "report_po_number"}}, "queryRef": "ccspv2_usage_reporting.report_po_number", "displayName": "PO Number"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "updated_date"}}, "queryRef": "ccspv2_usage_reporting.updated_date", "displayName": "Updated"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "end_user_company_name"}}, "queryRef": "ccspv2_usage_reporting.end_user_company_name", "displayName": "End User Company Name"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "internal_usage"}}, "queryRef": "ccspv2_usage_reporting.internal_usage", "displayName": "Internal usage"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "end_user_city"}}, "queryRef": "ccspv2_usage_reporting.end_user_city", "displayName": "End User City"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "end_user_state"}}, "queryRef": "ccspv2_usage_reporting.end_user_state", "displayName": "End User State/Prov"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "end_user_country"}}, "queryRef": "ccspv2_usage_reporting.end_user_country", "displayName": "Country Where SKU Consumed"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "sku_number"}}, "queryRef": "ccspv2_usage_reporting.sku_number", "displayName": "SKU Number"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "quantity_consumed"}}, "queryRef": "ccspv2_usage_reporting.quantity_consumed", "displayName": "Quantity"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "sku_description"}}, "queryRef": "ccspv2_usage_reporting.sku_description", "displayName": "SKU Description"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "unit_price"}}, "queryRef": "ccspv2_usage_reporting.unit_price", "displayName": "SKU Unit Price"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "extended_unit_price"}}, "queryRef": "ccspv2_usage_reporting.extended_unit_price", "displayName": "SKU Extended Unit Price"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_reporting"}}, "Property": "notes"}}, "queryRef": "ccspv2_usage_reporting.notes", "displayName": "Notes"}
+          ]
+        }
+      }
+    }
+  }
+}

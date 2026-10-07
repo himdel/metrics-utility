@@ -1,0 +1,24 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "ManagedNodesTable",
+  "position": {"x": 16, "y": 16, "z": 0, "width": 1248, "height": 688},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "host_name"}}, "queryRef": "ccspv2_managed_nodes.host_name", "displayName": "Host name"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "organizations"}}, "queryRef": "ccspv2_managed_nodes.organizations", "displayName": "Automated by organizations"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "host_runs"}}, "queryRef": "ccspv2_managed_nodes.host_runs", "displayName": "Job runs"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "task_runs"}}, "queryRef": "ccspv2_managed_nodes.task_runs", "displayName": "Number of task runs"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "first_automation"}}, "queryRef": "ccspv2_managed_nodes.first_automation", "displayName": "First automation"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "last_automation"}}, "queryRef": "ccspv2_managed_nodes.last_automation", "displayName": "Last automation"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "host_names_before_dedup"}}, "queryRef": "ccspv2_managed_nodes.host_names_before_dedup", "displayName": "Host names before deduplication"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_managed_nodes"}}, "Property": "host_names_before_dedup_count"}}, "queryRef": "ccspv2_managed_nodes.host_names_before_dedup_count", "displayName": "Host names before deduplication count"}
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.12.0/schema.json",
+  "name": "RolesTable",
+  "position": {"x": 16, "y": 16, "z": 0, "width": 1248, "height": 688},
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_by_roles"}}, "Property": "role_name"}}, "queryRef": "ccspv2_usage_by_roles.role_name", "displayName": "Role name"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_by_roles"}}, "Property": "host_runs_unique"}}, "queryRef": "ccspv2_usage_by_roles.host_runs_unique", "displayName": "Unique managed nodes automated"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_by_roles"}}, "Property": "host_runs"}}, "queryRef": "ccspv2_usage_by_roles.host_runs", "displayName": "Non-unique managed nodes automated"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_by_roles"}}, "Property": "task_runs"}}, "queryRef": "ccspv2_usage_by_roles.task_runs", "displayName": "Number of task runs"},
+            {"field": {"Column": {"Expression": {"SourceRef": {"Entity": "ccspv2_usage_by_roles"}}, "Property": "duration"}}, "queryRef": "ccspv2_usage_by_roles.duration", "displayName": "Duration of task runs [seconds]"}
+          ]
+        }
+      }
+    }
+  }
+}

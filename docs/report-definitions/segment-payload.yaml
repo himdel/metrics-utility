@@ -1,0 +1,196 @@
+# Source-derived contract for the production Segment payload and its precursor.
+# The JSON Schema companion validates AnonymizedMetricsPayload.anonymized_data,
+# after metrics-service has added its three production-only sections.
+spec:
+  name: metrics-utility-segment-payload
+  version: 0.1-draft
+  status: source-derived
+  schema: segment-payload.schema.json
+
+pipeline:
+  owner_wiring: metrics-service
+  source_rollups: metrics_utility.anonymized_rollups
+  schedules:
+    hourly_utc:
+      - {collector_type: unified_jobs, source: unified_jobs_dashboard, rollup: JobsAnonymizedRollup}
+      - {collector_type: job_host_summary_service, source: job_host_summary_service, rollup: JobHostSummaryAnonymizedRollup}
+      - {collector_type: credentials_service, source: credentials_service, rollup: CredentialsAnonymizedRollup}
+      - {collector_type: main_jobevent_service, source: main_jobevent_service, rollup: EventModulesAnonymizedRollup}
+    daily_snapshots:
+      - {collector_type: execution_environments, source: execution_environments, rollup: ExecutionEnvironmentsAnonymizedRollup}
+      - {collector_type: controller_version_service, source: controller_version_service, rollup: ControllerVersionAnonymizedRollup}
+      - {collector_type: table_metadata, source: table_metadata, rollup: TableMetadataAnonymizedRollup}
+      - {collector_type: feature_flags_service, source: feature_flags_service, rollup: FeatureFlagsAnonymizedRollup}
+      - {collector_type: config, source: config, rollup: none, stored_separately: true}
+    daily_time_range:
+      - {collector_type: task_executions_service, source: task_executions_service, rollup: TaskExecutionsAnonymizedRollup, database: metrics_service}
+      - {collector_type: indirect_managed_nodes, source: main_indirectmanagednodeaudit, rollup: IndirectManagedNodesAnonymizedRollup, database: controller, feature_flag: INDIRECT_NODE_COLLECTION}
+    daily_tasks:
+      - {task: daily_metrics_rollup, time: "02:00 UTC"}
+      - {task: daily_anonymize_and_prepare, time: "03:00 UTC", feature_flag: ANONYMIZED_DATA_COLLECTION}
+      - {task: send_anonymized_to_segment, mode: "scheduled one-shot with 1-240 minute jitter"}
+
+  collection_and_storage:
+    metric_collection_feature_flag: METRICS_COLLECTION
+    anonymization_send_feature_flag: ANONYMIZED_DATA_COLLECTION
+    hourly_rollup_expectation: 24
+    daily_collection_window: "Previous full calendar day, since-inclusive/until-exclusive"
+    daily_summary:
+      model: DailyMetricsSummary
+      precursor_field: aggregated_metrics
+      status_before_anonymization: aggregated
+      storage_model: HourlyMetricsCollection
+      stored_hourly_value: "rollup_processor.prepare(raw_collector_dataframe), not raw rows, for anonymized collectors"
+      merge: "rollup_processor.merge() across collector batches, then rollup_processor.base()['json']"
+    excluded_precursor_data:
+      - {field: config_data, reason: "Stored separately on DailyMetricsSummary; not passed to anonymize_rollups or Segment."}
+      - {source: "persist_to_hourly=false collectors, including events_table, workflow_job_node_table, query_info, main_host, main_host_daily, and main_hostmetric", reason: "AnalyticsPayload/local collector path; not in DailyMetricsSummary.aggregated_metrics."}
+      - {source: "raw dashboard JobData/JobHostSummary records", reason: "Local dashboard store only; dashboard_telemetry contains aggregate collection timings, not the rows."}
+
+precursor:
+  object: DailyMetricsSummary.aggregated_metrics
+  note: "This is a daily aggregate before final flattening/anonymization. Some component outputs still contain host IDs or collection/module identifiers and must not be sent directly."
+  components:
+    unified_jobs:
+      base_output_keys: [by_job_type, by_launch_type, by_ansible_version, jobs_by_controller_version, organizations_total, forks_total, jobs_total, installed_collections, scm_types]
+      description: "Finished job aggregates, durations/waiting times, job/template/inventory counts, Ansible versions, SCM types, and installed collection usage."
+    job_host_summary_service:
+      base_output_keys: [by_job_type, by_launch_type, by_ansible_version, job_host_pairs_total, unique_hosts_total, host_ids]
+      sensitive_intermediate: [host_ids]
+      description: "Host/task outcome aggregates by job type, launch type, and Ansible version; host_ids is used for the final unique-host count and is removed from the transmitted payload."
+    main_jobevent_service:
+      base_output_keys: [collected_events_total, warnings_total, deprecations_total, modules_used_to_automate_total, modules_used_per_playbook_total, module_stats, collection_stats, role_stats]
+      sensitive_intermediate: [module_names, role_names, collection_names, playbook_names]
+      description: "Runner-event totals and module/collection/role usage aggregates; custom names are filtered and the intermediate playbook-name map is reduced to a count before transmission."
+    credentials_service:
+      base_output: "sorted distinct credential type names"
+      description: "Credential types only, not credential names or credential records."
+    execution_environments:
+      base_output_keys: [execution_environments_total, execution_environments_default_total, execution_environments_custom_total]
+    controller_version_service:
+      base_output: "controller version string list"
+    table_metadata:
+      base_output: "map of table-prefixed estimated row counts and total/table/index size bytes"
+    feature_flags_service:
+      base_output: "platform feature flag name list; separate from metrics-service task-group enablement flags"
+    task_executions_service:
+      base_output: "per collector_type execution counts, missing expected executions, and duration total/min/max seconds"
+      database: metrics_service
+    indirect_managed_nodes:
+      base_output_keys: [indirect_nodes_total, by_collection, by_module]
+      sensitive_intermediate:
+        prepare_merge: [organization_name, host_names, custom_collection_names, custom_module_names]
+        daily_summary: [custom_collection_names, custom_module_names]
+      description: "Indirect managed-host aggregates by Ansible collection/module; base() strips organization and hostname values before the DailyMetricsSummary precursor is stored."
+    dashboard_telemetry:
+      added_by: metrics-service.daily_metrics_rollup
+      base_output: "one aggregate telemetry record per dashboard collection task for the summary date"
+    analytics_usage:
+      added_by: metrics-service.daily_metrics_rollup
+      base_output: "Prometheus aggregates by enabled public analytics collector name"
+      time_scope: "Cumulative since process metrics initialized (or multiprocess metrics reset), not strictly limited to summary_date."
+
+final_payload:
+  persisted_as: AnonymizedMetricsPayload.anonymized_data
+  produced_by: "metrics_utility.anonymized_rollups.anonymize_rollups() plus metrics-service daily_anonymize_and_prepare additions"
+  schema_ref: segment-payload.schema.json
+  utility_typed_dict: metrics_utility.anonymized_rollups.types.AnonymizedPayload
+  metrics_service_extensions:
+    - summary_metadata
+    - dashboard_telemetry
+    - analytics_usage
+  base_fields:
+    statistics: "rollup-period scalar totals assembled from jobs, job_host_summary, execution environments, events, tasks, and indirect managed-node rollups"
+    rollup_period_ansible_versions: "sorted unique versions from job groups"
+    rollup_period_scm_types: "sorted unique SCM type names"
+    rollup_period_credential_types: "credential type name list"
+    jobs_by_job_type: "job stats joined with host outcome stats; controller version injected"
+    jobs_by_launch_type: "job stats joined with host outcome stats; controller version injected"
+    jobs_by_ansible_version: "job stats joined with host outcome stats; controller version injected"
+    jobs_by_controller_version: "all-job aggregate with controller version injected"
+    jobs_by_installed_collections_versions: "job usage statistics keyed by public installed collection and version"
+    table_metadata: "table metadata map"
+    controller_versions: "controller version list"
+    feature_flags: "platform feature flag name list"
+    observability_by_tasks: "task execution health and duration summaries by collector"
+    indirect_nodes_by_collection: "indirect node counts by whitelisted collection"
+    indirect_nodes_by_module: "indirect node counts by module belonging to a whitelisted collection"
+  conditional_fields:
+    when: "events_modules.collected_events_total > 0"
+    fields: [module_stats, collection_stats, role_stats]
+  service_extensions:
+    summary_metadata:
+      fields:
+        summary_date: date
+        hourly_collections_count: integer
+        missing_hours: "list[string]"
+        aggregation_timestamp: "string|null"
+        install_type: "string|null"
+      note: "hourly_collections_count counts included collection records; it can include snapshot and daily-range collector records as well as hourly ones."
+    dashboard_telemetry:
+      type: "list[object]"
+      fields:
+        task_name: "string|null"
+        success: boolean
+        collection_duration_ms: number
+        number_of_records_processed: integer
+        database_query_time_ms: "number|null"
+        cache_hit_rate: "number|null"
+    analytics_usage:
+      type: "map[public_collector_name, object]"
+      fields:
+        request_count: integer
+        duration_ms_total: number
+        duration_ms_average: "number|null"
+
+privacy:
+  transformations:
+    - "Flatten nested base() results and merge job_host_summary outcome totals into job arrays by job_type, launch_type, and ansible_version."
+    - "Use host_ids only to compute statistics.rollup_period_unique_hosts_total; do not emit host_ids."
+    - "Reduce modules_used_per_playbook_total, whose precursor map is keyed by playbook name, to rollup_period_playbooks_total (a count); do not emit the names or per-playbook map."
+    - "Remove Custom-source module_stats, collection_stats, and role_stats entries entirely."
+    - "Keep installed collection names only when they appear in anonymized_rollups/collections.json."
+    - "Keep indirect node collection/module summaries only for names in the public collection whitelist."
+    - "Sanitize NaN/infinity and NumPy values during rollup preparation/base processing before JSON serialization."
+  excluded_from_final_payload:
+    - organization names
+    - hostnames and host IDs
+    - job names, template names, project names, user names, credential instances
+    - playbook names and the intermediate modules-per-playbook map
+    - config_data
+    - raw analytics request parameters, URLs, and request/response bodies
+
+segment_transport:
+  implementation: metrics_utility.library.storage.segment.StorageSegment
+  endpoint: "POST /v1/batch"
+  request:
+    envelope: {batch: "list of track events", sentAt: "UTC timestamp"}
+    authentication: "HTTP Basic auth with the Segment write key as username and empty password"
+    content_type: application/json
+    content_encoding: gzip
+    host_default: https://api.segment.io
+  event:
+    type: track
+    default_event_name: Controller Metrics Daily Rollup
+    test_mode_suffix: _Test
+    timestamp: AnonymizedMetricsPayload.created
+    message_id: "sha256(str(payload.created) + '_' + chunk_number)"
+    anonymous_id: "random UUID generated per put() call (send task does not pass one)"
+    user_id: "AnonymizedMetricsPayload.segment_user_id; default is a random salt unless overridden"
+    properties:
+      artifact_name: "metrics_collection_{segment_user_id}"
+      data: "one top-level payload key per chunk; arrays may become multiple ordered chunks"
+      upload_timestamp: "UTC time when the chunk is built"
+      chunk_info: [chunk_number, total_chunks, chunk_size]
+    context: {}
+    integrations: {}
+  limits:
+    max_event_json_bytes: 32768
+    event_data_budget: "max_event_json_bytes minus measured envelope overhead and a 128-byte safety margin"
+    max_batch_json_bytes: 475000
+    request_timeout_seconds: 30
+    gzip_default: true
+    splitting:
+      list_values: "Split at item boundaries while the single-item chunk fits the data budget."
+      dictionary_values: "Not split; an oversized dictionary logs a warning and may fail final event-size validation."
+      oversized_list_item: "Not split; may fail final event-size validation."

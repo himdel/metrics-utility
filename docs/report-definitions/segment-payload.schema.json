@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metrics-service anonymized Segment payload",
+  "$comment": "Schema for AnonymizedMetricsPayload.anonymized_data after metrics-service adds summary_metadata, dashboard_telemetry, and analytics_usage to metrics-utility's AnonymizedPayload output.",
+  "type": "object",
+  "required": [
+    "statistics",
+    "rollup_period_ansible_versions",
+    "rollup_period_scm_types",
+    "rollup_period_credential_types",
+    "jobs_by_job_type",
+    "jobs_by_launch_type",
+    "jobs_by_ansible_version",
+    "jobs_by_controller_version",
+    "jobs_by_installed_collections_versions",
+    "table_metadata",
+    "controller_versions",
+    "feature_flags",
+    "observability_by_tasks",
+    "indirect_nodes_by_collection",
+    "indirect_nodes_by_module",
+    "summary_metadata",
+    "dashboard_telemetry",
+    "analytics_usage"
+  ],
+  "properties": {
+    "statistics": {"$ref": "#/$defs/statistics"},
+    "rollup_period_ansible_versions": {"type": "array", "items": {"type": "string"}},
+    "rollup_period_scm_types": {"type": "array", "items": {"type": "string"}},
+    "rollup_period_credential_types": {"type": "array", "items": {"type": "string"}},
+    "jobs_by_job_type": {
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/jobStats"}, {"$ref": "#/$defs/hostSummary"}, {"$ref": "#/$defs/jobByType"}]}
+    },
+    "jobs_by_launch_type": {
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/jobStats"}, {"$ref": "#/$defs/hostSummary"}, {"$ref": "#/$defs/jobByLaunchType"}]}
+    },
+    "jobs_by_ansible_version": {
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/jobStats"}, {"$ref": "#/$defs/hostSummary"}, {"$ref": "#/$defs/jobByAnsibleVersion"}]}
+    },
+    "jobs_by_controller_version": {
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/jobStats"}, {"$ref": "#/$defs/jobByControllerVersion"}]}
+    },
+    "jobs_by_installed_collections_versions": {
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/jobStats"}, {"$ref": "#/$defs/installedCollection"}]}
+    },
+    "table_metadata": {"type": "object", "additionalProperties": {"type": "integer"}},
+    "controller_versions": {"type": "array", "items": {"type": "string"}},
+    "feature_flags": {"type": "array", "items": {"type": "string"}},
+    "observability_by_tasks": {"type": "array", "items": {"$ref": "#/$defs/observabilityByTask"}},
+    "indirect_nodes_by_collection": {"type": "array", "items": {"$ref": "#/$defs/indirectNodesByCollection"}},
+    "indirect_nodes_by_module": {"type": "array", "items": {"$ref": "#/$defs/indirectNodesByModule"}},
+    "module_stats": {"type": "array", "items": {"$ref": "#/$defs/moduleStats"}},
+    "collection_stats": {"type": "array", "items": {"$ref": "#/$defs/collectionStats"}},
+    "role_stats": {"type": "array", "items": {"$ref": "#/$defs/roleStats"}},
+    "summary_metadata": {"$ref": "#/$defs/summaryMetadata"},
+    "dashboard_telemetry": {"type": "array", "items": {"$ref": "#/$defs/dashboardTelemetry"}},
+    "analytics_usage": {"type": "object", "additionalProperties": {"$ref": "#/$defs/analyticsUsage"}}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "statistics": {
+      "type": "object",
+      "required": [
+        "rollup_period_execution_environments_total",
+        "rollup_period_EE_default_total",
+        "rollup_period_EE_custom_total",
+        "rollup_period_jobs_total",
+        "rollup_period_jobs_successful",
+        "rollup_period_jobs_failed",
+        "rollup_period_jobs_duration_all_statuses_seconds",
+        "rollup_period_jobs_successful_duration_total_seconds",
+        "rollup_period_jobs_failed_duration_total_seconds",
+        "rollup_period_organizations_total",
+        "rollup_period_forks_total",
+        "rollup_period_templates_total",
+        "rollup_period_inventories_total",
+        "rollup_period_unique_hosts_total",
+        "rollup_period_job_host_pairs_total",
+        "rollup_period_successful_hosts_total",
+        "rollup_period_failed_hosts_total",
+        "rollup_period_unreachable_hosts_total",
+        "rollup_period_indirect_managed_nodes_all_total",
+        "rollup_period_tasks_total",
+        "rollup_period_task_ok_total",
+        "rollup_period_task_failed_total",
+        "rollup_period_task_skipped_total",
+        "rollup_period_task_unreachable_total",
+        "rollup_period_task_ignored_total"
+      ],
+      "properties": {
+        "rollup_period_execution_environments_total": {"type": ["integer", "null"]},
+        "rollup_period_EE_default_total": {"type": ["integer", "null"]},
+        "rollup_period_EE_custom_total": {"type": ["integer", "null"]},
+        "rollup_period_jobs_total": {"type": "integer"},
+        "rollup_period_jobs_successful": {"type": "integer"},
+        "rollup_period_jobs_failed": {"type": "integer"},
+        "rollup_period_jobs_duration_all_statuses_seconds": {"type": "number"},
+        "rollup_period_jobs_successful_duration_total_seconds": {"type": "number"},
+        "rollup_period_jobs_failed_duration_total_seconds": {"type": "number"},
+        "rollup_period_organizations_total": {"type": "integer"},
+        "rollup_period_forks_total": {"type": "integer"},
+        "rollup_period_templates_total": {"type": "integer"},
+        "rollup_period_inventories_total": {"type": "integer"},
+        "rollup_period_unique_hosts_total": {"type": "integer"},
+        "rollup_period_job_host_pairs_total": {"type": ["integer", "null"]},
+        "rollup_period_successful_hosts_total": {"type": "integer"},
+        "rollup_period_failed_hosts_total": {"type": "integer"},
+        "rollup_period_unreachable_hosts_total": {"type": "integer"},
+        "rollup_period_indirect_managed_nodes_all_total": {"type": "integer"},
+        "rollup_period_tasks_total": {"type": "integer"},
+        "rollup_period_task_ok_total": {"type": "integer"},
+        "rollup_period_task_failed_total": {"type": "integer"},
+        "rollup_period_task_skipped_total": {"type": "integer"},
+        "rollup_period_task_unreachable_total": {"type": "integer"},
+        "rollup_period_task_ignored_total": {"type": "integer"},
+        "rollup_period_modules_total": {"type": ["integer", "null"]},
+        "rollup_period_collected_events_total": {"type": "integer"},
+        "rollup_period_warnings_total": {"type": "integer"},
+        "rollup_period_deprecations_total": {"type": "integer"},
+        "rollup_period_playbooks_total": {"type": "integer"}
+      },
+      "additionalProperties": true
+    },
+    "jobStats": {
+      "type": "object",
+      "required": [
+        "jobs_total",
+        "jobs_failed_total",
+        "jobs_successful_total",
+        "jobs_never_started_total",
+        "jobs_duration_total_seconds",
+        "jobs_successful_duration_total_seconds",
+        "jobs_failed_duration_total_seconds",
+        "job_duration_maximum_seconds",
+        "job_duration_minimum_seconds",
+        "job_waiting_time_total_seconds",
+        "job_waiting_time_maximum_seconds",
+        "job_waiting_time_minimum_seconds",
+        "templates_total",
+        "inventories_total"
+      ],
+      "properties": {
+        "jobs_total": {"type": "integer"},
+        "jobs_failed_total": {"type": "integer"},
+        "jobs_successful_total": {"type": "integer"},
+        "jobs_never_started_total": {"type": "integer"},
+        "jobs_duration_total_seconds": {"type": "number"},
+        "jobs_successful_duration_total_seconds": {"type": "number"},
+        "jobs_failed_duration_total_seconds": {"type": "number"},
+        "job_duration_maximum_seconds": {"type": ["number", "null"]},
+        "job_duration_minimum_seconds": {"type": ["number", "null"]},
+        "job_waiting_time_total_seconds": {"type": "number"},
+        "job_waiting_time_maximum_seconds": {"type": ["number", "null"]},
+        "job_waiting_time_minimum_seconds": {"type": ["number", "null"]},
+        "templates_total": {"type": "integer"},
+        "inventories_total": {"type": "integer"}
+      },
+      "additionalProperties": true
+    },
+    "hostSummary": {
+      "type": "object",
+      "required": [
+        "unreachable_total",
+        "failed_total",
+        "ok_total",
+        "skipped_total",
+        "ignored_total",
+        "rescued_total",
+        "successful_hosts_total",
+        "failed_hosts_total",
+        "unreachable_hosts_total"
+      ],
+      "properties": {
+        "unreachable_total": {"type": "integer"},
+        "failed_total": {"type": "integer"},
+        "ok_total": {"type": "integer"},
+        "skipped_total": {"type": "integer"},
+        "ignored_total": {"type": "integer"},
+        "rescued_total": {"type": "integer"},
+        "successful_hosts_total": {"type": "integer"},
+        "failed_hosts_total": {"type": "integer"},
+        "unreachable_hosts_total": {"type": "integer"}
+      },
+      "additionalProperties": true
+    },
+    "jobByType": {
+      "type": "object",
+      "required": ["job_type", "controller_version", "is_automation", "ansible_versions"],
+      "properties": {
+        "job_type": {"type": "string"},
+        "controller_version": {"type": ["string", "null"]},
+        "is_automation": {"type": "boolean"},
+        "ansible_versions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "jobByLaunchType": {
+      "type": "object",
+      "required": ["launch_type", "controller_version", "ansible_versions"],
+      "properties": {
+        "launch_type": {"type": "string"},
+        "controller_version": {"type": ["string", "null"]},
+        "ansible_versions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "jobByAnsibleVersion": {
+      "type": "object",
+      "required": ["ansible_version", "controller_version"],
+      "properties": {
+        "ansible_version": {"type": ["string", "null"]},
+        "controller_version": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "jobByControllerVersion": {
+      "type": "object",
+      "required": ["controller_version", "ansible_versions"],
+      "properties": {
+        "controller_version": {"type": ["string", "null"]},
+        "ansible_versions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "installedCollection": {
+      "type": "object",
+      "required": ["collection", "version", "ansible_versions"],
+      "properties": {
+        "collection": {"type": "string"},
+        "version": {"type": "string"},
+        "ansible_versions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "eventStats": {
+      "type": "object",
+      "required": [
+        "collection_source",
+        "jobs_total",
+        "jobs_successful_total",
+        "jobs_failed_total",
+        "jobs_duration_total_seconds",
+        "jobs_waiting_time_total_seconds",
+        "jobs_never_started_total",
+        "jobs_successful_duration_total_seconds",
+        "jobs_failed_duration_total_seconds",
+        "tasks_total",
+        "runner_on_ok_total",
+        "runner_on_failed_total",
+        "runner_on_unreachable_total",
+        "runner_on_async_ok_total",
+        "runner_on_async_failed_total",
+        "runner_item_on_ok_total",
+        "runner_item_on_failed_total",
+        "runner_retry_total",
+        "ignore_errors_total",
+        "warnings_total",
+        "deprecations_total",
+        "collected_events_total",
+        "event_data_size_total",
+        "ansible_versions"
+      ],
+      "properties": {
+        "collection_source": {"type": "string"},
+        "jobs_total": {"type": "integer"},
+        "jobs_successful_total": {"type": "integer"},
+        "jobs_failed_total": {"type": "integer"},
+        "jobs_duration_total_seconds": {"type": "number"},
+        "jobs_waiting_time_total_seconds": {"type": "number"},
+        "jobs_never_started_total": {"type": "integer"},
+        "jobs_successful_duration_total_seconds": {"type": "number"},
+        "jobs_failed_duration_total_seconds": {"type": "number"},
+        "tasks_total": {"type": "integer"},
+        "runner_on_ok_total": {"type": "integer"},
+        "runner_on_failed_total": {"type": "integer"},
+        "runner_on_unreachable_total": {"type": "integer"},
+        "runner_on_async_ok_total": {"type": "integer"},
+        "runner_on_async_failed_total": {"type": "integer"},
+        "runner_item_on_ok_total": {"type": "integer"},
+        "runner_item_on_failed_total": {"type": "integer"},
+        "runner_retry_total": {"type": "integer"},
+        "ignore_errors_total": {"type": "integer"},
+        "warnings_total": {"type": "integer"},
+        "deprecations_total": {"type": "integer"},
+        "collected_events_total": {"type": "integer"},
+        "event_data_size_total": {"type": "number"},
+        "ansible_versions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "moduleStats": {
+      "allOf": [
+        {"$ref": "#/$defs/eventStats"},
+        {"type": "object", "required": ["module", "collection"], "properties": {"module": {"type": "string"}, "collection": {"type": "string"}}}
+      ]
+    },
+    "collectionStats": {
+      "allOf": [
+        {"$ref": "#/$defs/eventStats"},
+        {"type": "object", "required": ["collection", "unique_hosts_total"], "properties": {"collection": {"type": "string"}, "unique_hosts_total": {"type": "integer"}}}
+      ]
+    },
+    "roleStats": {
+      "allOf": [
+        {"$ref": "#/$defs/eventStats"},
+        {"type": "object", "required": ["role", "collection"], "properties": {"role": {"type": "string"}, "collection": {"type": ["string", "null"]}}}
+      ]
+    },
+    "observabilityByTask": {
+      "type": "object",
+      "required": ["collector_type", "executions_total", "executions_missing_total", "execution_duration_total_seconds", "execution_duration_minimum_seconds", "execution_duration_maximum_seconds"],
+      "properties": {
+        "collector_type": {"type": "string"},
+        "executions_total": {"type": "integer"},
+        "executions_missing_total": {"type": "integer"},
+        "execution_duration_total_seconds": {"type": ["number", "null"]},
+        "execution_duration_minimum_seconds": {"type": ["number", "null"]},
+        "execution_duration_maximum_seconds": {"type": ["number", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "indirectNodesByCollection": {
+      "type": "object",
+      "required": ["collection", "host_count"],
+      "properties": {"collection": {"type": "string"}, "host_count": {"type": "integer"}},
+      "additionalProperties": true
+    },
+    "indirectNodesByModule": {
+      "type": "object",
+      "required": ["module", "host_count"],
+      "properties": {"module": {"type": "string"}, "host_count": {"type": "integer"}},
+      "additionalProperties": true
+    },
+    "summaryMetadata": {
+      "type": "object",
+      "required": ["summary_date", "hourly_collections_count", "missing_hours", "aggregation_timestamp", "install_type"],
+      "properties": {
+        "summary_date": {"type": "string", "format": "date"},
+        "hourly_collections_count": {"type": "integer"},
+        "missing_hours": {"type": "array", "items": {"type": "string"}},
+        "aggregation_timestamp": {"type": ["string", "null"]},
+        "install_type": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "dashboardTelemetry": {
+      "type": "object",
+      "required": ["task_name", "success", "collection_duration_ms", "number_of_records_processed", "database_query_time_ms", "cache_hit_rate"],
+      "properties": {
+        "task_name": {"type": ["string", "null"]},
+        "success": {"type": "boolean"},
+        "collection_duration_ms": {"type": "number"},
+        "number_of_records_processed": {"type": "integer"},
+        "database_query_time_ms": {"type": ["number", "null"]},
+        "cache_hit_rate": {"type": ["number", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "analyticsUsage": {
+      "type": "object",
+      "properties": {
+        "request_count": {"type": "integer"},
+        "duration_ms_total": {"type": "number"},
+        "duration_ms_average": {"type": ["number", "null"]}
+      },
+      "additionalProperties": true
+    }
+  }
+}
