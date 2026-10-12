@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | f237bf3 | 2026-09-29 | AAP-94777 \| fix(main_jobevent_service): guard ignore_errors boolean cast against non-boolean strings (#599) |
+| metrics-utility | dc14f7d | 2026-10-07 | AAP-94822 \| feat(dashboard_jobs): add organization_name to job results (#602) |
 | metrics-service | e70a84c | 2026-10-02 | add last collect timestamp to analytics root (#458) |
 | awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
 
