@@ -431,6 +431,12 @@
 - **What happened**: `tools/seed-awx-demo.sql` (a single PL/pgSQL `DO $$` block, run with `podman exec -i postgres psql -U awx -d awx < tools/seed-awx-demo.sql`) inserts disposable AWX data covering the four completed UTC hours before it runs: jobs, events, host summaries, workflow nodes, plus inventory, credentials, host metrics and monthly summaries, so every analytics collector returns non-empty payloads in a local compose stack. A marker job makes it safe to rerun without duplicating rows. The analytics app itself shipped with unit suites for apps, models, persist (best-effort swallowing, DataFrame/dict/None conversion), registry, tasks and views, plus cleanup and daily-rollup coverage for the new raw-only rows.
 - **Insight**: Seeds relative to "now" (last N completed hours) with an idempotency marker keep default-window collectors (previous hour / previous day) testable on any day without hand-editing timestamps.
 
+### Generated OpenAPI schema validated against real response shapes with OAS30Validator
+- **Repo**: ansible/metrics-service
+- **Commits**: 5bfe0a9 (#473)
+- **What happened**: CI already checked that the committed schema is up to date and spec-valid, which did not catch `org_streak.organization: null` being rejected by the schema (api_design.md, "allow_null ... allOf"). `tests/unit/dashboard_reports/test_leaderboard_schema.py` generates the schema in-process with `drf_spectacular.generators.SchemaGenerator().get_schema(request=None, public=True)`, takes `components.schemas.OrgStreak`, and validates sample payloads with `openapi_schema_validator.OAS30Validator(..., resolver=RefResolver.from_schema(schema))` -- parametrised so `None` and populated orgs must pass and `{}` / a string id must fail.
+- **Insight**: "The spec is valid" and "the spec accepts our responses" are different checks; a small parametrised validator test over edge-case payloads (nulls especially) catches generator quirks that schema diffing never will.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py

@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | dc14f7d | 2026-10-07 | AAP-94822 \| feat(dashboard_jobs): add organization_name to job results (#602) |
-| metrics-service | e70a84c | 2026-10-02 | add last collect timestamp to analytics root (#458) |
+| metrics-service | 3586927 | 2026-10-09 | Evaluate leaderboard org achievements across all member organizations (#474) |
 | awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
 
 ## About the "Superseded / Semi-Obsolete" sections
