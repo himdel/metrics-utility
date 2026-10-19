@@ -341,6 +341,12 @@
 - **What happened**: AAP-94862/AAP-94848: `pyjwt~=2.13` -> `~=2.15` in `pyproject.toml` (plus `uv.lock`) to pick up the fix for CVE-2026-102273. No code changes were needed.
 - **Insight**: Security bumps of a direct dependency belong in `pyproject.toml`'s compatible-release floor, not just the lockfile, so downstream rebuilds cannot resolve back to the vulnerable minor.
 
+### urllib3 floor raised to ~=2.8 for two CVEs
+- **Repo**: ansible/metrics-service
+- **Commits**: fa1fa49 (#485)
+- **What happened**: AAP-96443 / AAP-96530 (CVE-2026-97687, CVE-2026-97689). `pyproject.toml` moved `urllib3~=2.7` to `urllib3~=2.8` with the matching `uv.lock` refresh; no code changes. urllib3 is mostly transitive (botocore, requests and others), but is pinned directly so the product build picks up the fixed release.
+- **Insight**: Security-driven transitive bumps are done by tightening the compatible-release floor in metrics-service's own `pyproject.toml`, since that file is the compile source for the whole product container (see "Runtime dependency pins loosened to compatible-release ranges (metrics-service side)" above).
+
 ## Superseded / Semi-Obsolete
 
 ### `segment-analytics-python` as a runtime dependency

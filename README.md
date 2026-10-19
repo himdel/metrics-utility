@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | ab731a8 | 2026-10-13 | update AWX schema dump (f8314ad) (#610) |
-| metrics-service | 3586927 | 2026-10-09 | Evaluate leaderboard org achievements across all member organizations (#474) |
+| metrics-service | 26545f2 | 2026-10-19 | use postgres mirror in GitHub workflows (#476) |
 | awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
 
 ## About the "Superseded / Semi-Obsolete" sections

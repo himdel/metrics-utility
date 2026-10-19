@@ -426,6 +426,12 @@
 - **What happened**: The `pr-checks.yml` OpenAPI step used to call `manage.py spectacular` twice (YAML and JSON) inline, while developers were told to use `tools/generate-openapi.sh`, which regenerates both files *and* applies known manual patches to reconcile macOS/Linux differences for untyped path params and some DAB endpoints. CI now runs `bash tools/generate-openapi.sh` before the `git diff --exit-code` checks, so both sides produce the schema the same way.
 - **Insight**: If a schema-drift gate regenerates artifacts differently from the documented local command, contributors chase phantom diffs -- make CI invoke the exact script developers run.
 
+### GitHub workflow Postgres service containers pulled from mirror.gcr.io to dodge Docker Hub limits
+- **Repo**: ansible/metrics-service
+- **Commits**: 26545f2 (#476)
+- **What happened**: `pr-checks.yml` and `pytest.yml` still declared their Postgres service as the unqualified `postgres:15`, i.e. Docker Hub, and CI runs started failing during service-container initialisation with Docker Hub auth timeouts and unauthenticated pull rate limits. Both switched to `mirror.gcr.io/postgres:15`, matching the repo's Compose files (changed back in #45, see docker_and_deployment.md "PostgreSQL image switched to GCR mirror") and metrics-utility's `tools/docker/docker-compose.yaml`.
+- **Insight**: Moving the Compose files to a mirror doesn't cover GitHub Actions `services:` images, which are a separate pull path -- grep every workflow for bare Docker Hub image names when adopting a mirror.
+
 ## Superseded / Semi-Obsolete
 
 ### PR target glob `stable-*` for metrics-utility
