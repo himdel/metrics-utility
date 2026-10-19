@@ -226,6 +226,12 @@
 - **What happened**: `dynamic_settings/0002_rename_show_gamification_to_show_leaderboard` does `Setting.objects.filter(setting_key="SHOW_GAMIFICATION").update(setting_key="SHOW_LEADERBOARD")` with a mirrored reverse function, using `apps.get_model` (historical model). `update()` rather than delete/recreate keeps the stored value and audit fields (`last_modified_by`).
 - **Insight**: Settings stored as rows keyed by name are schema in disguise -- a key rename needs a reversible data migration like any column rename.
 
+### AWX schema dump refresh adds `object_ansible_id` to DAB RBAC assignment tables
+- **Repo**: ansible/metrics-utility
+- **Commits**: ab731a8 (#610)
+- **What happened**: The weekly workflow refreshed `tools/docker/latest.sql` to AWX `devel` (f8314ad), picking up django-ansible-base#1152. The only DDL change is a new nullable `object_ansible_id uuid` column on `dab_rbac_roleteamassignment` and `dab_rbac_roleuserassignment`. No metrics-utility collector reads either table, so the change has no effect here.
+- **Insight**: DAB RBAC tables keep showing up in schema refreshes (see #535). They sit outside our dependent tables, so these diffs only need a quick check.
+
 ## Superseded / Semi-Obsolete
 
 ### The pl/pgsql helper duplication: AWX's copy is the good one, ours are two stale ones  [RESOLVED]

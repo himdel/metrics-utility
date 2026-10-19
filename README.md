@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | dc14f7d | 2026-10-07 | AAP-94822 \| feat(dashboard_jobs): add organization_name to job results (#602) |
+| metrics-utility | ab731a8 | 2026-10-13 | update AWX schema dump (f8314ad) (#610) |
 | metrics-service | 3586927 | 2026-10-09 | Evaluate leaderboard org achievements across all member organizations (#474) |
 | awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
 
