@@ -39,7 +39,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 |------|--------|------|---------|
 | metrics-utility | ab731a8 | 2026-10-13 | update AWX schema dump (f8314ad) (#610) |
 | metrics-service | 26545f2 | 2026-10-19 | use postgres mirror in GitHub workflows (#476) |
-| awx | dad4da74b9 | 2026-09-23 | Fix 500 on /api/v2/schedules/ from orphaned token cleanup schedule (#16660) |
+| awx | 918ba2ef36 | 2026-10-12 | AAP-95887 Use SKIP LOCKED to prevent lock convoy on parent JT update (#16719) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 

@@ -232,6 +232,12 @@
 - **What happened**: The weekly workflow refreshed `tools/docker/latest.sql` to AWX `devel` (f8314ad), picking up django-ansible-base#1152. The only DDL change is a new nullable `object_ansible_id uuid` column on `dab_rbac_roleteamassignment` and `dab_rbac_roleuserassignment`. No metrics-utility collector reads either table, so the change has no effect here.
 - **Insight**: DAB RBAC tables keep showing up in schema refreshes (see #535). They sit outside our dependent tables, so these diffs only need a quick check.
 
+### AWX #16719: SKIP LOCKED on parent JT update can leave main_unifiedjobtemplate.last_job stale (no schema change)
+- **Repo**: ansible/awx
+- **Commits**: 918ba2ef36 (#16719)
+- **What happened**: No migration, no DDL. Python-only change in `UnifiedJob._update_parent_instance()` (`unified_jobs.py`, plus the `ProjectUpdate` override in `projects.py` passing the flag through). For jobs whose template has `allow_simultaneous=True`, the `connection.on_commit` callback that propagates a job's status change to its parent template now does `select_for_update(skip_locked=True).filter(pk=...).first()` inside `transaction.atomic()`. If another session already holds the template row lock, the update is **silently skipped** (debug log only) instead of queuing. Motivation: a customer incident with 635+ sessions queued on one JT row, single-row UPDATEs taking 11-25 minutes. Non-`allow_simultaneous` jobs keep the synchronous, blocking path. The fields written are `current_job`, `status`, `last_job`, `last_job_failed` on the template (`main_unifiedjobtemplate`). Also, `save()` is now skipped when there are no changed fields.
+- **Insight**: Affects **main_unifiedjobtemplate** (and, by inheritance, `main_jobtemplate` rows behind it): the PR says the fields are "latest wins", but the session that gets the lock writes *its own* job's state, not the newest one. So when jobs on the same `allow_simultaneous` template finish concurrently, `last_job_id`, `last_job_failed`, `status` and `current_job_id` can point at an older job until the template's next status change. Collectors should get "latest job per template" from `main_unifiedjob` (max `id`/`finished` by `unified_job_template_id`) rather than trusting `main_unifiedjobtemplate.last_job_id`/`status`. (Before this change the on_commit path was already unordered, but nothing got dropped.)
+
 ## Superseded / Semi-Obsolete
 
 ### The pl/pgsql helper duplication: AWX's copy is the good one, ours are two stale ones  [RESOLVED]
