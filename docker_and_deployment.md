@@ -4,6 +4,7 @@
 - **Commits**: b6879b0 (#71), be761a3 (#52)
 - **What happened**: A `tools/docker/docker-compose.yaml` was created with four services: (1) `postgres` initialized with the AWX schema dump (`latest.sql`) and role definitions (`roles.sql`), (2) `minio` for S3-compatible storage, (3) `minio-setup` that creates buckets, users, and extracts access keys to a shared tmpfs volume, (4) `metrics-utility` that syncs the source code into a tmpfs (to avoid polluting the source dir), patches the DB hostname, installs dependencies with uv, and runs gather. The AWX schema files were moved from `metrics_utility/test/test_data/schemas/awx/` to `tools/docker/` to co-locate them with the compose file. The metrics-utility container uses `quay.io/fedora/python-311` and copies source to tmpfs because uv had trouble installing when a pre-existing `.venv` was present.
 - **Insight**: The tmpfs trick (copy source to tmpfs, build there) works around uv/pip issues with pre-existing virtual environments in mounted volumes, and avoids polluting the host source tree with build artifacts.
+- **Partially superseded**: MinIO was replaced by SeaweedFS in c4fcac6 (#488).
 
 ### Docker Compose simplified: profiles, static credentials, no shared volumes
 - **Repo**: ansible/metrics-utility
@@ -53,35 +54,18 @@
 - **What happened**: `apps/core/resource_api.py` had its `OAuth2Application` and `OAuth2AccessToken` resource registrations commented out because they caused import errors. The `try/except ImportError` block was already there but apparently wasn't catching the actual error.
 - **Insight**: DAB's OAuth2 provider models may not be available during migrations or initial setup, and the `try/except ImportError` pattern doesn't catch all failure modes (e.g., `AppRegistryNotReady`).
 
-### Docker switched from pip to uv for dependency management
-- **Repo**: ansible/metrics-service
-- **Commits**: d85322e (#18)
-- **What happened**: The Dockerfile was updated to install `uv` via pip and use it for dependency management inside the container, replacing the direct `pip install -r requirements.txt` approach. The `scripts/docker-entrypoint.sh` was recreated (after being deleted in c6947ce) with proper database readiness checks and migration handling.
-- **Insight**: Using uv inside Docker provides the same dependency resolution as development, ensuring consistency. However, installing uv via pip inside the container adds an extra layer -- Konflux later needed its own requirements files approach.
-
 ### Docker compose simplified to remove Redis and unneeded services
 - **Repo**: ansible/metrics-service
 - **Commits**: d85322e (#18)
 - **What happened**: The docker-compose.yml was cleaned up to remove Redis container references, simplify the PostgreSQL service configuration, and update the metrics-service container setup. The `.env.example` was updated to remove the Redis URL variable.
 - **Insight**: Removing unused infrastructure from docker-compose reduces startup time and resource usage for developers. The Redis service was added from the template but never used by the application.
 
-### Konflux onboarding required parallel requirements file management
-- **Repo**: ansible/metrics-service
-- **Commits**: c31e746 (#21)
-- **What happened**: Onboarding to Konflux (Red Hat's CI/CD platform) required adding Tekton pipeline configurations (`.tekton/metrics-service-pull-request.yaml` and `push.yaml`, ~640 lines each), plus `requirements-build.txt`, `requirements-pinned.txt`, `rpms.in.yaml`, `rpms.lock.yaml`, and `ubi.repo` files. The Tekton pipelines use hermetic builds with prefetch-input that reads from `requirements-build.txt`. The Dockerfile was updated to reference `Dockerfile.backend`.
-- **Insight**: Konflux's hermetic build system cannot use uv.lock directly -- it requires pip-format requirements files with hashes. This created a parallel dependency management burden: uv.lock for development, requirements-pinned.txt/requirements-build.txt for Konflux builds. This mismatch was the motivation for the sync-requirements system added later in f848024 (#24).
-
 ### Docker removed uv in favor of plain pip for container builds
 - **Repo**: ansible/metrics-service
 - **Commits**: 6059d8c (#45)
 - **What happened**: The Dockerfile was updated to remove `pip install uv` and the `UV_SYSTEM_PYTHON=1` env var. Dependency installation switched from `uv pip install` to plain `pip install --no-cache-dir -r requirements-build.txt`. The `docker-compose.yml` command changed from `uv run python manage.py ...` to `python manage.py metrics_service run`. The entrypoint script (`docker-entrypoint.sh`) also replaced all `uv run python` calls with plain `python`. The `uv` package was also removed from `pyproject.toml` dependencies.
 - **Insight**: Having `uv` as both a development tool and a runtime container dependency created unnecessary complexity. The container only needs pip to install from the pre-built `requirements-build.txt` (which is generated from `uv.lock` by the sync-requirements system). Removing uv from the container reduces image size and attack surface.
-
-### Separate dispatcherd container merged into main service
-- **Repo**: ansible/metrics-service
-- **Commits**: 6059d8c (#45)
-- **What happened**: The `metrics-dispatcher` service was removed from `docker-compose.yml`. Previously there were two containers: one running `runserver` and another running `run_dispatcherd`. Now the single `metrics-service-app` container runs `python manage.py metrics_service run` which starts Django + dispatcherd + APScheduler in the same process. The `CMD` in Dockerfile was updated to match.
-- **Insight**: Running all three components (web server, task worker, scheduler) in a single container simplifies the Docker development setup. The `metrics_service run` management command already manages all three as threads/subprocesses. For production Kubernetes deployments, separate containers may still be needed for scaling independently.
+- **Partially superseded**: `requirements-build.txt` was deleted in 531b608 (#129); the image now runs `pip install .` from `pyproject.toml`.
 
 ### PostgreSQL image switched to GCR mirror
 - **Repo**: ansible/metrics-service
@@ -125,23 +109,11 @@
 - **What happened**: The Dockerfile `LABEL` directives were updated from `com.redhat.component="metrics-utility"` / `name="metrics-utility"` / `cpe="cpe:/a:redhat:metrics_utility:..."` to the correct `metrics-service` values. The labels had been copied from the metrics-utility project and never updated.
 - **Insight**: Container labels affect Red Hat certification scanning and vulnerability tracking. Wrong CPE identifiers can cause security advisories to be associated with the wrong product. Labels should be verified when creating a new service repo from an existing project.
 
-### Dockerfile rebuilt for source-only builds and SBOM compliance
-- **Repo**: ansible/metrics-service
-- **Commits**: e09243d (#95)
-- **What happened**: The Dockerfile was significantly expanded to build all Python dependencies from source (no binary wheels). `PIP_NO_BINARY=:all:` was set as an environment variable. System dependencies were expanded to include `gcc`, `gcc-c++`, `make`, `python3.12-devel`, `postgresql-devel`, `libpq-devel`, `openldap-devel`, `openssl-devel`, `libffi-devel`, `rust`, `cargo`, and `redhat-rpm-config`. The `pip install` command was updated to use `--no-binary :all:`. Dev requirements installation was removed from the production image. Cachi2 hermetic build support was added (`if [ -f /cachi2/cachi2.env ]; then source /cachi2/cachi2.env; fi`). In `pyproject.toml`, `psycopg[binary]` changed to `psycopg[c]` (C extension built from source) and `psycopg2-binary` changed to `psycopg2` (source build). Tekton pipeline configs were updated to disable binary wheels during prefetch.
-- **Insight**: Red Hat's SBOM (Software Bill of Materials) compliance requires that all components in a container image be traceable to source code. Binary wheels like `psycopg2-binary` contain pre-compiled C code that can't be verified by SBOM tools. Building from source is slower but provides full provenance. The Rust toolchain is needed because the `cryptography` package builds its Rust components from source.
-
 ### django-ansible-base pin relaxed and switched to uv git source
 - **Repo**: ansible/metrics-service
 - **Commits**: e09243d (#95)
 - **What happened**: `django-ansible-base` was changed from `==2025.10.20` to `>=2025.12.12` in `pyproject.toml`, while `[tool.uv.sources]` was updated from `rev = "devel"` (branch) to a specific commit hash. The comment explains: "Use `uv sync` so `[tool.uv.sources]` applies; plain `pip install .` will use latest from PyPI."
 - **Insight**: The dual pin approach (minimum version in `pyproject.toml` + specific commit in `[tool.uv.sources]`) serves two audiences: development uses the git commit via `uv sync`, while production builds use the PyPI version via `pip install`. This avoids the issue where a `devel` branch reference in `uv.lock` conflicts with `requirements-pinned.txt`.
-
-### Rapid Dockerfile iteration for Konflux source-only builds (7 PRs in 4 days)
-- **Repo**: ansible/metrics-service
-- **Commits**: 095d0f0 (#98), 7c8c0c0 (#99), 400b419 (#100), 4672f09 (#102), 204de50 (#103), 72c8a74 (#104)
-- **What happened**: Between Feb 12-16, seven PRs iterated on the Dockerfile and requirements to get Konflux hermetic builds working. The sequence was: (1) #98 removed the global `PIP_NO_BINARY=:all:` from the Dockerfile to unblock builds, (2) #99 updated labels to the `ansible-automation-platform-tech-preview/metrics-service-rhel9` format for Konflux certification, (3) #100 re-added `--no-binary :all:` as a directive in `requirements-build.txt` instead of a Dockerfile env var (so Cachi2 prefetch respects it), (4) #102 was the same change re-applied (appears to have been reverted/rebased), (5) #103 added `packaging>=20.0` as a dependency because setuptools-scm needed it during source builds, (6) #104 was the comprehensive fix that replaced the blanket `--no-binary :all:` with targeted `--no-binary` for only cryptography/psycopg packages, introduced `requirements-build-extra.txt` for build-time deps (pytest-runner, setuptools-scm, wheel), added a `Dockerfile.dev` for fast local builds using binary wheels, added Hermeto/Cachi2 offline install handling with django-ansible-base git URL rewriting to local tarballs, removed `-e .` from requirements-build.txt (incompatible with hermetic builds), and pinned version to `1.0.0` in pyproject.toml.
-- **Insight**: The blanket `--no-binary :all:` approach failed because many packages (Django, pandas, numpy) are painful or impossible to build from source in a hermetic environment. The targeted approach (source-only for crypto/psycopg, binaries for everything else) was the pragmatic solution. The `Dockerfile.dev` split acknowledges that production compliance requirements (source builds, SBOM traceability) shouldn't slow down local development. The Hermeto git URL rewriting (`sed` to convert `git+https://` to `file:///cachi2/deps/pip/`) is a fragile but necessary workaround for hermetic builds that can't fetch from the network.
 
 ### Dockerfile labels updated for Konflux tech-preview naming
 - **Repo**: ansible/metrics-service
@@ -233,6 +205,41 @@
 - **Insight**: A unified compose file in the library repo (metrics-utility) that supports both library and service development via profiles eliminates the need for each repo to maintain its own compose file. The service repo only needs Makefile targets that delegate to the shared compose. This ensures consistent database setup (roles, schemas) across both repos. **Extends** the unified compose work in metrics-utility #433.
 
 ## Superseded / Semi-Obsolete
+
+### Dockerfile rebuilt for source-only builds and SBOM compliance
+- **Repo**: ansible/metrics-service
+- **Commits**: e09243d (#95)
+- **What happened**: The Dockerfile was significantly expanded to build all Python dependencies from source (no binary wheels). `PIP_NO_BINARY=:all:` was set as an environment variable. System dependencies were expanded to include `gcc`, `gcc-c++`, `make`, `python3.12-devel`, `postgresql-devel`, `libpq-devel`, `openldap-devel`, `openssl-devel`, `libffi-devel`, `rust`, `cargo`, and `redhat-rpm-config`. The `pip install` command was updated to use `--no-binary :all:`. Dev requirements installation was removed from the production image. Cachi2 hermetic build support was added (`if [ -f /cachi2/cachi2.env ]; then source /cachi2/cachi2.env; fi`). In `pyproject.toml`, `psycopg[binary]` changed to `psycopg[c]` (C extension built from source) and `psycopg2-binary` changed to `psycopg2` (source build). Tekton pipeline configs were updated to disable binary wheels during prefetch.
+- **Insight**: Red Hat's SBOM (Software Bill of Materials) compliance requires that all components in a container image be traceable to source code. Binary wheels like `psycopg2-binary` contain pre-compiled C code that can't be verified by SBOM tools. Building from source is slower but provides full provenance. The Rust toolchain is needed because the `cryptography` package builds its Rust components from source.
+- **Superseded**: Reversed in 531b608 (#129): binary wheels, no build toolchain in the image.
+
+### Separate dispatcherd container merged into main service
+- **Repo**: ansible/metrics-service
+- **Commits**: 6059d8c (#45)
+- **What happened**: The `metrics-dispatcher` service was removed from `docker-compose.yml`. Previously there were two containers: one running `runserver` and another running `run_dispatcherd`. Now the single `metrics-service-app` container runs `python manage.py metrics_service run` which starts Django + dispatcherd + APScheduler in the same process. The `CMD` in Dockerfile was updated to match.
+- **Insight**: Running all three components (web server, task worker, scheduler) in a single container simplifies the Docker development setup. The `metrics_service run` management command already manages all three as threads/subprocesses. For production Kubernetes deployments, separate containers may still be needed for scaling independently.
+- **Superseded**: Reversed in 83b2d93 (#117), which split compose back into init, web, dispatcher and scheduler containers.
+
+### Docker switched from pip to uv for dependency management
+- **Repo**: ansible/metrics-service
+- **Commits**: d85322e (#18)
+- **What happened**: The Dockerfile was updated to install `uv` via pip and use it for dependency management inside the container, replacing the direct `pip install -r requirements.txt` approach. The `scripts/docker-entrypoint.sh` was recreated (after being deleted in c6947ce) with proper database readiness checks and migration handling.
+- **Insight**: Using uv inside Docker provides the same dependency resolution as development, ensuring consistency. However, installing uv via pip inside the container adds an extra layer -- Konflux later needed its own requirements files approach.
+- **Superseded**: uv was removed from the container again in 6059d8c (#45).
+
+### Rapid Dockerfile iteration for Konflux source-only builds (7 PRs in 4 days)
+- **Repo**: ansible/metrics-service
+- **Commits**: 095d0f0 (#98), 7c8c0c0 (#99), 400b419 (#100), 4672f09 (#102), 204de50 (#103), 72c8a74 (#104)
+- **What happened**: Between Feb 12-16, seven PRs iterated on the Dockerfile and requirements to get Konflux hermetic builds working. The sequence was: (1) #98 removed the global `PIP_NO_BINARY=:all:` from the Dockerfile to unblock builds, (2) #99 updated labels to the `ansible-automation-platform-tech-preview/metrics-service-rhel9` format for Konflux certification, (3) #100 re-added `--no-binary :all:` as a directive in `requirements-build.txt` instead of a Dockerfile env var (so Cachi2 prefetch respects it), (4) #102 was the same change re-applied (appears to have been reverted/rebased), (5) #103 added `packaging>=20.0` as a dependency because setuptools-scm needed it during source builds, (6) #104 was the comprehensive fix that replaced the blanket `--no-binary :all:` with targeted `--no-binary` for only cryptography/psycopg packages, introduced `requirements-build-extra.txt` for build-time deps (pytest-runner, setuptools-scm, wheel), added a `Dockerfile.dev` for fast local builds using binary wheels, added Hermeto/Cachi2 offline install handling with django-ansible-base git URL rewriting to local tarballs, removed `-e .` from requirements-build.txt (incompatible with hermetic builds), and pinned version to `1.0.0` in pyproject.toml.
+- **Insight**: The blanket `--no-binary :all:` approach failed because many packages (Django, pandas, numpy) are painful or impossible to build from source in a hermetic environment. The targeted approach (source-only for crypto/psycopg, binaries for everything else) was the pragmatic solution. The `Dockerfile.dev` split acknowledges that production compliance requirements (source builds, SBOM traceability) shouldn't slow down local development. The Hermeto git URL rewriting (`sed` to convert `git+https://` to `file:///cachi2/deps/pip/`) is a fragile but necessary workaround for hermetic builds that can't fetch from the network.
+- **Superseded**: The source-only build approach was abandoned in 531b608 (#129) in favour of binary wheels.
+
+### Konflux onboarding required parallel requirements file management
+- **Repo**: ansible/metrics-service
+- **Commits**: c31e746 (#21)
+- **What happened**: Onboarding to Konflux (Red Hat's CI/CD platform) required adding Tekton pipeline configurations (`.tekton/metrics-service-pull-request.yaml` and `push.yaml`, ~640 lines each), plus `requirements-build.txt`, `requirements-pinned.txt`, `rpms.in.yaml`, `rpms.lock.yaml`, and `ubi.repo` files. The Tekton pipelines use hermetic builds with prefetch-input that reads from `requirements-build.txt`. The Dockerfile was updated to reference `Dockerfile.backend`.
+- **Insight**: Konflux's hermetic build system cannot use uv.lock directly -- it requires pip-format requirements files with hashes. This created a parallel dependency management burden: uv.lock for development, requirements-pinned.txt/requirements-build.txt for Konflux builds. This mismatch was the motivation for the sync-requirements system added later in f848024 (#24).
+- **Superseded**: The `.tekton/` build pipelines and the parallel requirements/rpms files were deleted in 531b608 (#129).
 
 ### MinIO used for S3-compatible storage in dev/CI
 - **Repo**: ansible/metrics-utility

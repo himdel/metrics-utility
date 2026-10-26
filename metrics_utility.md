@@ -31,12 +31,6 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: The gather command previously called `exit(0)` for both success and all error cases, and `exit(-1)` for missing AWX modules. PR #18 standardized this: `exit(0)` on success, `exit(1)` on any error (bad config, upload failure, no data collected). A `NoAnalyticsCollected` exception was added to properly signal when no data was gathered, which also triggers `exit(1)`.
 - **Insight**: Return code correctness matters for cron-based automation -- operators need `$?` to detect collection failures and trigger alerts.
 
-### Verbose debug output via --verbose flag and debug_utils module
-- **Repo**: ansible/metrics-utility
-- **Commits**: a93b6bf (#66)
-- **What happened**: A `debug_utils.py` module was added at the project root with `print_debug(text)` and `print_data(df, caption)` functions that only produce output when `--verbose` is in `sys.argv`. `print_data` drops a hardcoded list of noisy columns (timestamps, IDs, variables) before displaying dataframes with `pprint`. A `set_ccspv2_vars()` helper was also added for setting all CCSPv2 env vars programmatically (useful for IDE debugging). The debug calls were wired into the dataframe engines at key aggregation points (before/after groupby, after outer join) to trace the data pipeline.
-- **Insight**: The `--verbose` flag with strategic print points at each aggregation step makes it possible to trace billing data through the multi-stage merge pipeline without modifying code -- essential for debugging incorrect report values.
-
 ### Data generator script for creating test tarballs at scale
 - **Repo**: ansible/metrics-utility
 - **Commits**: 0320d20 (#91)
@@ -121,12 +115,6 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **What happened**: The `run-ccsp2-gather` and `run-renewal` scripts previously contained inline logic to start a PostgreSQL container if one wasn't running, using `podman run` with hardcoded schema volumes. After `conf_setting` data was added to the Docker Compose setup (#242), this inline DB startup no longer produced the correct test data. Both scripts were simplified to just check `pg_isready -h localhost` and exit with an error message if the DB isn't running, directing the user to run `make compose` first. This removed ~25 lines of Podman container management code from each script.
 - **Insight**: When test data requirements evolve (e.g., adding conf_setting rows), ad-hoc container startup in individual scripts diverges from the canonical `make compose` setup -- it's better to require the single source of truth than to maintain parallel DB initialization paths.
 
-### Library instants redesigned: relative_to parameter, truncation to period boundaries
-- **Repo**: ansible/metrics-utility
-- **Commits**: 184c585 (#267)
-- **What happened**: The `library/instants.py` module was redesigned from simple "N units ago from now" functions to period-boundary-aware helpers. Previous functions like `last_day()`, `last_week()` just subtracted timedeltas from `now()`. The new versions: (1) `this_*()` functions return the *start* of the current period (e.g., `this_hour()` returns current hour with minutes/seconds zeroed). (2) `last_*()` functions return the start of the *previous* period relative to an optional `relative_to` parameter (defaulting to the corresponding `this_*()` boundary). (3) `*_ago(n)` functions subtract N periods from the boundary. (4) `last_month()` and `months_ago()` handle year boundaries correctly using total-months arithmetic. (5) An `iso()` helper was added for datetime-to-string conversion. The debug logging was removed entirely.
-- **Insight**: Period-boundary-aware datetime helpers (truncating to start-of-hour/day/week/month) are essential for billing and metrics collection where time ranges must align to period boundaries -- raw timedelta subtraction from `now()` produces non-aligned timestamps that cause off-by-one errors in aggregation.
-
 ### `anonymized_rollups/__init__.py` and `library/anonymize/` added as package entry points
 - **Repo**: ansible/metrics-utility
 - **Commits**: dbb7426 (#278)
@@ -144,12 +132,6 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **Commits**: 983daa9 (#283)
 - **What happened**: The `compute_anonymized_rollup()` function previously called each collector (`execution_environments`, `unified_jobs`, `job_host_summary_service`, `main_jobevent_service`) directly, meaning any single collector failure would crash the entire rollup pipeline. Each collector call was wrapped in a `try/except Exception` that logs the error and falls back to an empty list (`[]`), allowing the remaining collectors to still run and produce partial rollup data. The function was also added to `anonymized_rollups/__init__.py` exports.
 - **Insight**: In a multi-collector pipeline where each collector is independent, individual failures should be logged and continued rather than aborting the entire pipeline -- partial rollup data (e.g., jobs without events) is more valuable than no data at all.
-
-### Library entry point added for `compute_anonymized_rollup_from_raw_data`
-- **Repo**: ansible/metrics-utility
-- **Commits**: de0a10c (#305)
-- **What happened**: A `metrics_utility/library/anonymize/compute_from_raw_data.py` module was added that re-exports `compute_anonymized_rollup_from_raw_data` from the CLI-side `anonymized_rollups` package, providing a library-level entry point for the metrics service. This follows the existing pattern where `library/anonymize/anonymized_rollups_processor.py` wraps `compute_anonymized_rollup`.
-- **Insight**: The library's `anonymize/` package now provides two entry points: `anonymized_rollups_processor` (for DB-connected rollups) and `compute_anonymized_rollup_from_raw_data` (for pre-collected CSV file rollups) -- both are re-exports from CLI code, keeping the library as a thin API surface.
 
 ### `anonymize_rollups()` signature: new rollups added as keyword-only arguments
 - **Repo**: ansible/metrics-utility
@@ -193,12 +175,6 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **Superseded by**: #464/#475 -- see "Indirect nodes collector v2" entry below
 - **What happened**: The `IndirectManagedNodesAnonymizedRollup` class (added in #446) was significantly redesigned across two PRs. (1) PR #453 changed `prepare()` from storing all records as dicts to extracting only unique `host_remote_id` values, returning `{indirect_node_ids: [...], indirect_nodes_total: N}`. A `merge()` method was added that deduplicates host IDs across 24 hourly collections using set union, enabling accurate daily billing counts. The rollup was also integrated into `anonymize_rollups()` as a keyword-only parameter `indirect_managed_nodes_rollup`, and `flatten_json_report()` was updated to extract `rollup_period_indirect_managed_nodes_total` into the statistics section. (2) PR #457 added a `base()` method that strips `indirect_node_ids` from the final payload for privacy, returning only `{indirect_nodes_total: N}`. It also renamed the statistic key to `rollup_period_indirect_managed_nodes_all_total`, wired the collector into `compute_anonymized_rollup()` in the test helpers, added SQL test data (`main_indirectmanagednodeaudit.sql`), and added gather-to-json integration test coverage. The CI workflow was updated to create the `main_indirectmanagednodeaudit` table.
 - **Insight**: The three-method pattern (`prepare()` extracts and deduplicates per-hour, `merge()` deduplicates across hours, `base()` strips PII before transmission) is a clean separation for rollup types where per-collection granularity is needed for accuracy but sensitive identifiers must not leave the system. **Note**: The host_remote_id-based deduplication was replaced in #475 with host_name-based grouping by collection, since host_remote_id is always NULL for indirect managed nodes.
-
-### Filter option collectors: plain SQL snapshots for dashboard cache tables
-- **Repo**: ansible/metrics-utility
-- **Commits**: b3224a7 (#455)
-- **What happened**: Four new collector functions (`fetch_organizations`, `fetch_job_templates`, `fetch_projects`, `fetch_labels`) were added to `library/collectors/dashboard/filter_options.py`. These are intentionally NOT time-windowed DataFrame collectors -- they return plain `[{id, name}, ...]` dicts from full-table snapshots (`SELECT id, name FROM main_organization ORDER BY name`). Each has a corresponding `get_*_query()` function that returns `(sql, params)` tuples following the `dashboard/queries.py` convention. A shared `_fetch_id_name()` helper handles cursor execution and dict construction. All eight functions are exported from `dashboard/__init__.py`. 24 tests validate both query structure and fetch behavior with mock cursors.
-- **Insight**: Not all collectors need to be time-windowed DataFrame collectors -- full-table snapshots for small reference tables (orgs, templates, projects, labels) are a valid pattern when the goal is populating local cache tables to remove runtime Controller DB dependency from filter dropdowns.
 
 ### Indirect nodes collector v2: daily slicing by job.finished with collection grouping
 - **Repo**: ansible/metrics-utility
@@ -265,3 +241,32 @@ Patterns, conventions, and gotchas specific to `ansible/metrics-utility`.
 - **Commits**: c00f979 (#558)
 - **What happened**: For the GA of indirect node reporting in AAP 2.7, the 'Usage by collections' sheet (both CCSP and CCSPv2) now folds in indirect managed node data. `Base._build_indirect_collections_long()` normalizes each INDIRECT job-host-summary row -- whose `events` list holds fully-qualified content names like `cisco.ios.ios_command` -- into per-collection "long" rows by exploding the list (one row per collection, dedup via a set), using `DataframeContentUsage.extract_collection_name()` to derive the collection. Those rows are concatenated onto the direct content-usage frame (restricted to the shared `COLLECTIONS_LONG_COLUMNS`) before the group-by. `_build_data_section_usage_by_collections()` gained an `indirects=None` parameter, so it is a no-op preserving direct-only behavior when no indirect data is passed. The report classes only pass indirects when `'indirectly_managed_nodes'` is in the optional sheets, matching the 'Usage by organizations' gating. Known imprecision: an indirect row's `task_runs` is attributed to *every* collection in its events list (the audit data doesn't break task counts down per collection) and `duration` is set to 0 -- host counts (the sheet's real purpose) stay accurate.
 - **Insight**: Indirect audit data records a host's collection usage as a flat `events` list without per-collection task/duration breakdown, so exploding it into per-collection rows preserves the host counts that the sheet is about while knowingly over-counting task_runs per collection -- an acceptable trade documented in the code. **Still live at HEAD**, but the GA default flip it was built for was reverted (#579/#581/#582/#583) -- `indirectly_managed_nodes` is opt-in again, so this code path only runs when `METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS` names the sheet explicitly. That it survived the revert intact is exactly because it was landed as its own PR, separate from the default flip.
+
+## Superseded / Semi-Obsolete
+### Filter option collectors: plain SQL snapshots for dashboard cache tables
+- **Repo**: ansible/metrics-utility
+- **Commits**: b3224a7 (#455)
+- **What happened**: Four new collector functions (`fetch_organizations`, `fetch_job_templates`, `fetch_projects`, `fetch_labels`) were added to `library/collectors/dashboard/filter_options.py`. These are intentionally NOT time-windowed DataFrame collectors -- they return plain `[{id, name}, ...]` dicts from full-table snapshots (`SELECT id, name FROM main_organization ORDER BY name`). Each has a corresponding `get_*_query()` function that returns `(sql, params)` tuples following the `dashboard/queries.py` convention. A shared `_fetch_id_name()` helper handles cursor execution and dict construction. All eight functions are exported from `dashboard/__init__.py`. 24 tests validate both query structure and fetch behavior with mock cursors.
+- **Insight**: Not all collectors need to be time-windowed DataFrame collectors -- full-table snapshots for small reference tables (orgs, templates, projects, labels) are a valid pattern when the goal is populating local cache tables to remove runtime Controller DB dependency from filter dropdowns.
+- **Superseded**: `library/collectors/dashboard/filter_options.py` was deleted in fd6626d (#540).
+
+### Library entry point added for `compute_anonymized_rollup_from_raw_data`
+- **Repo**: ansible/metrics-utility
+- **Commits**: de0a10c (#305)
+- **What happened**: A `metrics_utility/library/anonymize/compute_from_raw_data.py` module was added that re-exports `compute_anonymized_rollup_from_raw_data` from the CLI-side `anonymized_rollups` package, providing a library-level entry point for the metrics service. This follows the existing pattern where `library/anonymize/anonymized_rollups_processor.py` wraps `compute_anonymized_rollup`.
+- **Insight**: The library's `anonymize/` package now provides two entry points: `anonymized_rollups_processor` (for DB-connected rollups) and `compute_anonymized_rollup_from_raw_data` (for pre-collected CSV file rollups) -- both are re-exports from CLI code, keeping the library as a thin API surface.
+- **Superseded**: `library/anonymize/` was removed in 7db682c (#357); see "`library/anonymize/` re-export module removed" above.
+
+### Library instants redesigned: relative_to parameter, truncation to period boundaries
+- **Repo**: ansible/metrics-utility
+- **Commits**: 184c585 (#267)
+- **What happened**: The `library/instants.py` module was redesigned from simple "N units ago from now" functions to period-boundary-aware helpers. Previous functions like `last_day()`, `last_week()` just subtracted timedeltas from `now()`. The new versions: (1) `this_*()` functions return the *start* of the current period (e.g., `this_hour()` returns current hour with minutes/seconds zeroed). (2) `last_*()` functions return the start of the *previous* period relative to an optional `relative_to` parameter (defaulting to the corresponding `this_*()` boundary). (3) `*_ago(n)` functions subtract N periods from the boundary. (4) `last_month()` and `months_ago()` handle year boundaries correctly using total-months arithmetic. (5) An `iso()` helper was added for datetime-to-string conversion. The debug logging was removed entirely.
+- **Insight**: Period-boundary-aware datetime helpers (truncating to start-of-hour/day/week/month) are essential for billing and metrics collection where time ranges must align to period boundaries -- raw timedelta subtraction from `now()` produces non-aligned timestamps that cause off-by-one errors in aggregation.
+- **Superseded**: `library/instants.py` was deleted in fd6626d (#540).
+
+### Verbose debug output via --verbose flag and debug_utils module
+- **Repo**: ansible/metrics-utility
+- **Commits**: a93b6bf (#66)
+- **What happened**: A `debug_utils.py` module was added at the project root with `print_debug(text)` and `print_data(df, caption)` functions that only produce output when `--verbose` is in `sys.argv`. `print_data` drops a hardcoded list of noisy columns (timestamps, IDs, variables) before displaying dataframes with `pprint`. A `set_ccspv2_vars()` helper was also added for setting all CCSPv2 env vars programmatically (useful for IDE debugging). The debug calls were wired into the dataframe engines at key aggregation points (before/after groupby, after outer join) to trace the data pipeline.
+- **Insight**: The `--verbose` flag with strategic print points at each aggregation step makes it possible to trace billing data through the multi-stage merge pipeline without modifying code -- essential for debugging incorrect report values.
+- **Superseded**: `debug_utils.py` was replaced by the single `metrics_utility/logger.py` module in 35194fb (#173).

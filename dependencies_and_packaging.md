@@ -101,18 +101,6 @@
 - **What happened**: The metrics-utility version was previously hardcoded as `'0.6.1dev'` in two places: the `config` collector (embedded in config.json tarballs) and the `ManagementUtility` (for `--version` output). Both were replaced with `importlib.metadata.version('metrics-utility')`, which reads the version from the installed package metadata (ultimately from `setup.cfg`). The `pyproject.toml` was also updated to use `dynamic = ["version"]` instead of `version = "0.1.0"`, deferring to `setup.cfg` for the actual version. Additional project metadata (authors, license, classifiers, URLs, console_scripts entry point) was added to `pyproject.toml`.
 - **Insight**: Using `importlib.metadata.version()` eliminates the need to manually update version strings in code -- the single source of truth is `setup.cfg`, and the runtime reads it automatically via installed package metadata.
 
-### sync-requirements system bridges uv and Konflux requirements
-- **Repo**: ansible/metrics-service
-- **Commits**: f848024 (#24)
-- **What happened**: A `sync-requirements.sh` script was added that uses `uv export --format requirements.txt` to generate `requirements-pinned.txt` (production, with hashes), `dev-requirements.txt` (dev-only, with hashes), and `requirements-build.txt` (compiled from pinned) from `uv.lock`. A pre-commit hook auto-runs this script when `pyproject.toml` or `uv.lock` changes.
-- **Insight**: This system solves the dual-dependency-management problem: developers use `uv` and `uv.lock`, but Konflux hermetic builds need pip-format requirements with hashes. The `uv export` command provides the bridge, and the pre-commit hook + CI workflow ensure the files stay in sync.
-
-### metrics-utility pinned to a specific git commit rather than a branch
-- **Repo**: ansible/metrics-service
-- **Commits**: edb4626 (#25)
-- **What happened**: The `metrics-utility` dependency was initially pointed at a local directory, then changed to a GitHub repository pointing at the `devel` branch, and finally pinned to a specific commit hash in `pyproject.toml`, `requirements-build.txt`, and `requirements-pinned.txt`. The commit message says "Changed pyproject.toml, requirements-build.txt, and requirements-pinned.txt to point to a specific commit of metrics-utility instead of the devel branch."
-- **Insight**: Pinning to a specific commit rather than a branch is essential for reproducible builds. A branch reference (`@devel`) means different builds at different times get different code, which can cause mysterious CI failures. The trade-off is that you need to manually bump the commit hash when you want new changes from metrics-utility.
-
 ### Python pinned to ==3.12 from >=3.11
 - **Repo**: ansible/metrics-service
 - **Commits**: c8e5f0d (#36), 10581e9 (#42)
@@ -191,29 +179,11 @@
 - **What happened**: `poethepoet>=0.37.0` was added to dev dependencies, and `[tool.poe.tasks]` was configured in `pyproject.toml` with tasks for `lint`, `format`, `unit-test`, `check` (all three combined), `clean`, `validate` (runs framework validator), and `update` (runs framework template updater).
 - **Insight**: The poe task runner provides convenient aliases (`uv run poe check`) for common development workflows. The `validate` and `update` tasks integrate with the platform-service-framework's copier template system, reading `.copier-answers.yml` to determine the template source and branch.
 
-### psycopg switched from binary to source builds
-- **Repo**: ansible/metrics-service
-- **Commits**: e09243d (#95)
-- **What happened**: `psycopg[binary]` changed to `psycopg[c]` and `psycopg2-binary` changed to `psycopg2` in `pyproject.toml`. The `[c]` extra for psycopg3 builds the C-accelerated adapter from source, while plain `psycopg2` builds from source against `libpq-devel`.
-- **Insight**: Binary wheels contain pre-compiled C code that can't be traced by SBOM tools. Red Hat certification requires full source provenance. The `[c]` extra for psycopg3 is the recommended source-build path that still provides C-speed performance (unlike `[binary]` which ships pre-built binaries).
-
 ### django-ansible-base version pin relaxed with uv source override
 - **Repo**: ansible/metrics-service
 - **Commits**: e09243d (#95)
 - **What happened**: DAB changed from `==2025.10.20` (exact pin) to `>=2025.12.12` (minimum), while `[tool.uv.sources]` was changed from `rev = "devel"` (branch) to a specific commit hash. A comment explains the dual approach: `uv sync` uses the git source, while `pip install` uses PyPI.
 - **Insight**: The minimum pin in `pyproject.toml` allows production builds (via pip) to use the latest compatible PyPI release, while development (via uv) uses a specific commit from the git repo. This avoids the issue where a floating `devel` branch reference in uv causes different developers to get different versions.
-
-### Targeted --no-binary replaces blanket source-only builds
-- **Repo**: ansible/metrics-service
-- **Commits**: 095d0f0 (#98), 400b419 (#100), 4672f09 (#102), 72c8a74 (#104)
-- **What happened**: After #95 introduced global `--no-binary :all:` for SBOM compliance, a rapid iteration cycle (4 PRs in 2 days) discovered this was too aggressive. #98 removed it from the Dockerfile. #100/#102 moved it into `requirements-build.txt` as a pip directive (so Cachi2 would see it). #104 replaced the blanket `--no-binary :all:` with targeted directives: `--no-binary cryptography`, `--no-binary psycopg`, `--no-binary psycopg2`, `--no-binary psycopg-c`. Other packages (Django, pandas, numpy) use binary wheels.
-- **Insight**: Source-only builds for every package is impractical in hermetic builds -- many packages need build toolchains (Rust for cryptography, C for numpy) that aren't available or take too long. The targeted approach provides SBOM compliance for the security-critical packages (cryptography, database drivers) while keeping builds fast for everything else.
-
-### Build-time extra dependencies for hermetic builds
-- **Repo**: ansible/metrics-service
-- **Commits**: 204de50 (#103), 72c8a74 (#104)
-- **What happened**: `packaging>=20.0` was added as a runtime dependency to support setuptools-scm during source builds (#103). Then #104 introduced `requirements-build-extra.txt` containing build-time-only deps (pytest-runner, setuptools-scm, wheel) so Cachi2 prefetches them. The `sync-requirements.sh` was updated to compile build requirements from both `requirements-pinned.txt` and `requirements-build-extra.txt`.
-- **Insight**: Hermetic builds can't fetch packages at build time, so all build-time dependencies (not just runtime deps) must be prefetched. Packages like django-crum use pytest-runner in their setup.py, which fails in an offline build without it. The separate `requirements-build-extra.txt` keeps build deps distinct from runtime deps.
 
 ### pyproject.toml version pinned to 1.0.0 (no longer dynamic)
 - **Repo**: ansible/metrics-service
@@ -364,6 +334,41 @@
 - **Insight**: Use `uv run ruff` (locked version) instead of `uvx ruff` (latest from PyPI) in CI to prevent version skew between local development and CI. When ruff adds new default rules across versions, `uvx ruff` in CI could fail on code that passes locally with an older locked version.
 
 ## Superseded / Semi-Obsolete
+
+### Targeted --no-binary replaces blanket source-only builds
+- **Repo**: ansible/metrics-service
+- **Commits**: 095d0f0 (#98), 400b419 (#100), 4672f09 (#102), 72c8a74 (#104)
+- **What happened**: After #95 introduced global `--no-binary :all:` for SBOM compliance, a rapid iteration cycle (4 PRs in 2 days) discovered this was too aggressive. #98 removed it from the Dockerfile. #100/#102 moved it into `requirements-build.txt` as a pip directive (so Cachi2 would see it). #104 replaced the blanket `--no-binary :all:` with targeted directives: `--no-binary cryptography`, `--no-binary psycopg`, `--no-binary psycopg2`, `--no-binary psycopg-c`. Other packages (Django, pandas, numpy) use binary wheels.
+- **Insight**: Source-only builds for every package is impractical in hermetic builds -- many packages need build toolchains (Rust for cryptography, C for numpy) that aren't available or take too long. The targeted approach provides SBOM compliance for the security-critical packages (cryptography, database drivers) while keeping builds fast for everything else.
+- **Superseded**: Moot since 531b608 (#129): requirements files deleted, production build uses binary wheels.
+
+### psycopg switched from binary to source builds
+- **Repo**: ansible/metrics-service
+- **Commits**: e09243d (#95)
+- **What happened**: `psycopg[binary]` changed to `psycopg[c]` and `psycopg2-binary` changed to `psycopg2` in `pyproject.toml`. The `[c]` extra for psycopg3 builds the C-accelerated adapter from source, while plain `psycopg2` builds from source against `libpq-devel`.
+- **Insight**: Binary wheels contain pre-compiled C code that can't be traced by SBOM tools. Red Hat certification requires full source provenance. The `[c]` extra for psycopg3 is the recommended source-build path that still provides C-speed performance (unlike `[binary]` which ships pre-built binaries).
+- **Superseded**: Reverted to `psycopg[binary]`/`psycopg2-binary` in 531b608 (#129).
+
+### Build-time extra dependencies for hermetic builds
+- **Repo**: ansible/metrics-service
+- **Commits**: 204de50 (#103), 72c8a74 (#104)
+- **What happened**: `packaging>=20.0` was added as a runtime dependency to support setuptools-scm during source builds (#103). Then #104 introduced `requirements-build-extra.txt` containing build-time-only deps (pytest-runner, setuptools-scm, wheel) so Cachi2 prefetches them. The `sync-requirements.sh` was updated to compile build requirements from both `requirements-pinned.txt` and `requirements-build-extra.txt`.
+- **Insight**: Hermetic builds can't fetch packages at build time, so all build-time dependencies (not just runtime deps) must be prefetched. Packages like django-crum use pytest-runner in their setup.py, which fails in an offline build without it. The separate `requirements-build-extra.txt` keeps build deps distinct from runtime deps.
+- **Superseded**: `requirements-build-extra.txt` was deleted in 531b608 (#129).
+
+### metrics-utility pinned to a specific git commit rather than a branch
+- **Repo**: ansible/metrics-service
+- **Commits**: edb4626 (#25)
+- **What happened**: The `metrics-utility` dependency was initially pointed at a local directory, then changed to a GitHub repository pointing at the `devel` branch, and finally pinned to a specific commit hash in `pyproject.toml`, `requirements-build.txt`, and `requirements-pinned.txt`. The commit message says "Changed pyproject.toml, requirements-build.txt, and requirements-pinned.txt to point to a specific commit of metrics-utility instead of the devel branch."
+- **Insight**: Pinning to a specific commit rather than a branch is essential for reproducible builds. A branch reference (`@devel`) means different builds at different times get different code, which can cause mysterious CI failures. The trade-off is that you need to manually bump the commit hash when you want new changes from metrics-utility.
+- **Superseded**: Replaced by a version pin in 10581e9 (#42); now `metrics-utility>=0.8.0`.
+
+### sync-requirements system bridges uv and Konflux requirements
+- **Repo**: ansible/metrics-service
+- **Commits**: f848024 (#24)
+- **What happened**: A `sync-requirements.sh` script was added that uses `uv export --format requirements.txt` to generate `requirements-pinned.txt` (production, with hashes), `dev-requirements.txt` (dev-only, with hashes), and `requirements-build.txt` (compiled from pinned) from `uv.lock`. A pre-commit hook auto-runs this script when `pyproject.toml` or `uv.lock` changes.
+- **Insight**: This system solves the dual-dependency-management problem: developers use `uv` and `uv.lock`, but Konflux hermetic builds need pip-format requirements with hashes. The `uv export` command provides the bridge, and the pre-commit hook + CI workflow ensure the files stay in sync.
+- **Superseded**: Deleted in 531b608 (#129) together with all requirements files.
 
 ### `segment-analytics-python` as a runtime dependency
 - **Repo**: ansible/metrics-utility

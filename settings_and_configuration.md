@@ -239,12 +239,6 @@
 - **What happened**: The earlier fix (#178) handled empty/whitespace `METRICS_UTILITY_OPTIONAL_COLLECTORS` by adding `''` to `VALID_COLLECTORS`. This was replaced with a cleaner approach: `get_optional_collectors()` now strips whitespace and uses `filter(bool, ...)` to remove empty strings after splitting by comma. The validation in `validation.py` similarly strips and checks for empty before splitting. This eliminates the magic empty string from the valid set.
 - **Insight**: Rather than adding empty string as a "valid" sentinel value, use `filter(bool, s.split(','))` to cleanly handle the empty/whitespace case -- this removes the need for any special case in the valid values set. **Supersedes** the empty string workaround from #178.
 
-### FEATURE_FLAGS renamed to FEATURE_ENABLED to avoid AAP naming conflict
-- **Repo**: ansible/metrics-service
-- **Commits**: c8e5f0d (#36)
-- **What happened**: The settings dict was renamed from `FEATURE_FLAGS` to `FEATURE_ENABLED` across defaults.py, test.py, and task_groups.py. The `TaskGroup` class attribute `enabled_flag` was renamed to `enabled_setting`. The commit message says "changing feature flag to feature enable ... to avoid confusion with the actual feature flag in Ansible."
-- **Insight**: AAP already has a "feature flags" concept (from `ansible_base.feature_flags` which was disabled earlier). Using the same term in this service created confusion about which feature flag system was being referenced. The rename to `FEATURE_ENABLED` distinguishes this service's runtime toggles from AAP's feature flags system.
-
 ### Feature toggles became DB-driven with Django settings fallback
 - **Repo**: ansible/metrics-service
 - **Commits**: c8e5f0d (#36)
@@ -281,18 +275,6 @@
 - **What happened**: The `config/dispatcherd.yaml` had its hardcoded database credentials removed and replaced with a comment saying "Database config is injected at runtime from Django settings." A new `_load_config_with_django_db()` function in `dispatcherd_config.py` loads the YAML file, then overwrites `brokers.pg_notify.config` with values from `django.conf.settings.DATABASES["default"]`.
 - **Insight**: This resolves the long-running problem of dispatcherd's database config being out of sync with Django's. Now `METRICS_SERVICE_DATABASES__default__*` env vars flow through Dynaconf -> Django settings -> dispatcherd config, providing a single source of truth. The YAML file still controls non-DB settings like channel names and queue routing.
 
-### DEVELOPER_MODE_ENABLED feature gate for production safety
-- **Repo**: ansible/metrics-service
-- **Commits**: dbf6fb1 (#65)
-- **What happened**: A `DEVELOPER_MODE_ENABLED` setting was added (default `False`) to `defaults.py`, overridable via `METRICS_SERVICE_DEVELOPER_MODE_ENABLED`. A `DeveloperModeRequired` DRF permission class in `apps/core/permissions.py` checks this setting and returns 403 when disabled. A `require_developer_mode` decorator (using `functools.wraps`) does the same for plain Django views. Both `TaskViewSet` and `TaskExecutionViewSet` switched from `permission_classes = [AllowAny]` (which was marked "Temporary for dashboard access") to `[DeveloperModeRequired]`. The dashboard view also gained the decorator. Test settings set `DEVELOPER_MODE_ENABLED = True`.
-- **Insight**: This is a clean pattern for gating debug/development endpoints in production: a single boolean setting controls access, checked at two layers (DRF permissions for API, decorator for views). The previous `AllowAny` permission on task endpoints was a security risk that persisted for months.
-
-### URL prefix env var for gateway routing
-- **Repo**: ansible/metrics-service
-- **Commits**: 2efdae3 (#69), a64071c (#70)
-- **What happened**: A `METRICS_SERVICE_URL_PREFIX` env var was added (read via `os.getenv()` in the dashboard view) to prefix the API base URL when the service runs behind a gateway. If set (e.g., `METRICS_SERVICE_URL_PREFIX=metrics-service`), the dashboard's API calls go to `/<prefix>/api/v1/` instead of `/api/v1/`. The first attempt (#69) used `METRICS_URL_PREFIX`, renamed in #70 to follow the `METRICS_SERVICE_*` convention.
-- **Insight**: This was a stopgap solution for gateway routing. The proper fix came in 52c8fb5 (#75) with `ServicePrefixMiddleware` which handles prefix routing at the Django middleware level, making the env var approach unnecessary for most cases.
-
 ### Per-app settings.py files using Dynaconf merge markers
 - **Repo**: ansible/metrics-service
 - **Commits**: 52c8fb5 (#75)
@@ -316,12 +298,6 @@
 - **Commits**: 911dd60 (#77), 3a58426 (#79)
 - **What happened**: The settings restructuring created `apps/tasks/settings.py` with task-specific settings (`DISPATCHERD_ENABLED = True`, `SEGMENT_WRITE_KEY`). This file is automatically loaded by the Dynaconf instrumentation in `metrics_service/settings.py` which iterates `LOADED_APPS` and calls `DYNACONF.load_file(f"{app}.settings")` for each app. The loading order means later apps can override earlier apps' settings, and environment-specific files (`apps/settings/{mode}.py`) override all app settings.
 - **Insight**: Per-app settings files follow the "apps own their configuration" principle. Settings declared in `apps/tasks/settings.py` stay with the tasks app and are version-controlled alongside the code that uses them. Dynaconf merge markers (`@merge_unique`, `dynaconf_merge`) ensure app-level settings extend rather than replace base settings.
-
-### DEVELOPER_MODE_ENABLED replaced by METRICS_SERVICE_MODE check
-- **Repo**: ansible/metrics-service
-- **Commits**: 7db9971 (#87)
-- **What happened**: The `DEVELOPER_MODE_ENABLED` setting and all references to it were removed. Instead, the `DeveloperModeRequired` permission class (renamed conceptually to development mode) now checks `settings.MODE == "development"`. The dashboard's `require_developer_mode` decorator was renamed to `require_development_mode` with the same MODE-based check. Test settings no longer need `DEVELOPER_MODE_ENABLED = True` since `METRICS_SERVICE_MODE=test` is already set and doesn't match "development". Tests that need dashboard/task API access now mock `settings.MODE` to return `"development"`.
-- **Insight**: Using the existing `MODE` setting (which already distinguishes development/test/production) to gate debug endpoints eliminates a separate boolean flag. This is cleaner because there's a single source of truth for "what environment am I in." The trade-off is that test mode can't access debug endpoints without mocking, which is arguably correct behavior.
 
 ### URL_PREFIX setting added for dashboard API URL generation
 - **Repo**: ansible/metrics-service
@@ -347,23 +323,12 @@
 - **What happened**: `init-default-settings` now recreates settings that haven't been changed by the user (no `previous_value` set). Settings changed by the user are preserved. Added `--overwrite` flag to force-reset all settings to defaults. Added complementary `remove-default-settings` with `--all-known` (removes even user-changed settings) and `--all-settings` (deletes everything).
 - **Insight**: The `previous_value` field on the Setting model serves as a change-tracking flag: if null, the setting hasn't been modified by the user and can be safely reset. This allows re-running `init-default-settings` on upgrades to apply new defaults without overwriting user customizations.
 
-### ALLOWED_HOSTS validator added for production then immediately disabled
-- **Repo**: ansible/metrics-service
-- **Commits**: 531b608 (#129), 6b4f17c (#137)
-- **What happened**: In #129, a production validator was added requiring `ALLOWED_HOSTS` to be a non-empty list. In #137 (one week later), this validator was commented out along with three others for the tech preview deployment.
-- **Insight**: The rapid add-then-disable cycle reflects the tension between security hardening (validating all production settings) and deployment pragmatism (the tech preview environment isn't fully configured yet). The commented-out validators serve as documentation of what will be enforced once gateway integration is complete.
-
 ### SEGMENT_WRITE_KEY loaded from file for Konflux secrets management
 - **Repo**: ansible/metrics-service
 - **Commits**: 6b4f17c (#137)
 - **What happened**: A new secrets management pattern was introduced for loading `SEGMENT_WRITE_KEY` from a file instead of (or in addition to) environment variables. The `_load_segment_write_key_from_file()` function reads from a configurable path (default: `/etc/ansible-automation-platform/metrics/segment-write-key`, overridable via `METRICS_SERVICE_SEGMENT_WRITE_KEY_FILE`). The file content is expected to be base64-encoded. The function respects precedence: it does NOT overwrite if the key is already set via `METRICS_SERVICE_SEGMENT_WRITE_KEY` env var or Dynaconf. The `_decode_segment_key()` helper tries base64 decoding and falls back to using the raw value if decoding fails. This runs at settings module load time (called immediately after `load_envvars`). Comprehensive unit tests were added covering base64 decode, file-not-found, empty file, directory path, and OSError scenarios.
 - **Insight**: In Konflux deployments, build-time secrets (like Segment write keys) are injected as files rather than environment variables. The base64 encoding adds a layer that prevents accidental log exposure. The precedence order (env var > Dynaconf setting > file) ensures operators can always override the file-based key. This is the beginning of a pattern that will be iterated on -- Konflux pipeline secrets management for API keys.
-
-### Production validators temporarily disabled for tech preview deployment
-- **Repo**: ansible/metrics-service
-- **Commits**: 6b4f17c (#137)
-- **What happened**: Four production validators were commented out (with "Optional until gateway APIs are implemented" comments): `RESOURCE_SERVER__SECRET_KEY`, `ANSIBLE_BASE_JWT_KEY`, `SEGMENT_WRITE_KEY`, and `ALLOWED_HOSTS`. A test was added to assert these settings do NOT have validators, ensuring they stay optional. The PR description says "Temp removing validators as TP wont support gateway correction."
-- **Insight**: For the tech preview (TP) release, the service will deploy without the AAP gateway integration (no JWT auth, no resource server). Disabling validators prevents the service from failing to start in environments where gateway config isn't available yet. The test asserting the absence of validators is a clever way to prevent someone from accidentally re-enabling them before gateway support is ready.
+- **Partially superseded**: The base64 decoding was removed in 1b38f9f (#141); the file is read as plaintext.
 
 ### SEGMENT_WRITE_KEY base64 encoding removed in favor of plaintext
 - **Repo**: ansible/metrics-service
@@ -407,23 +372,12 @@
 - **What happened**: The `mock_awx/settings/__init__.py` DB configuration was expanded to read `METRICS_UTILITY_DB_NAME`, `METRICS_UTILITY_DB_USER`, `METRICS_UTILITY_DB_PASSWORD`, and `METRICS_UTILITY_DB_PORT` (in addition to the existing `METRICS_UTILITY_DB_HOST`), with defaults matching the Docker Compose dev setup (`awx`, `myuser`, `mypassword`, `5432`). A warning was added to `metrics_utility/__init__.py`: when Controller modules are found (i.e., running inside a real Controller venv), any `METRICS_UTILITY_DB_*` env vars are logged as ignored with a message that they only take effect in standalone mode. The Makefile also gained `pcompose`, `pclean`, and `ppsql` targets for podman-compose users.
 - **Insight**: When env vars only apply in one operating mode (standalone) but are ignored in another (controller venv), warn the user explicitly -- silent ignoring of configuration is a common source of confusion when operators copy configs between environments.
 
-### Feature flags now persist through DAB migrations via post_migrate signal
-- **Repo**: ansible/metrics-service
-- **Commits**: db116c4 (#184)
-- **What happened**: DAB's feature_flags app purges/reloads flags on every migration, deleting task-owned flags. A `feature_flags.yaml` defines the flags, and `TasksConfig.ready()` connects `load_task_feature_flags` to `post_migrate` of `FeatureFlagsConfig`, re-seeding after every DAB purge cycle.
-- **Insight**: When a third-party framework owns a model and purges/reloads it during migrations, application-specific records need a re-seeding mechanism. Using `post_migrate` connected to the framework's app ensures correct ordering.
-
-### Dashboard endpoint moved from /dashboard/ to /api/dashboard/
-- **Repo**: ansible/metrics-service
-- **Commits**: db116c4 (#184)
-- **What happened**: Dashboard URL changed from `/dashboard/` to `/api/dashboard/`. A redirect from `/api/v1/feature_flags/` to `/api/v1/feature_flags/states/` was added.
-- **Insight**: Placing the dashboard under `/api/` ensures it's covered by the same middleware and prefix handling as the REST API, simplifying gateway routing.
-
 ### Feature flag precedence order clarified and DASHBOARD_COLLECTION removed from defaults
 - **Repo**: ansible/metrics-service
 - **Commits**: fc2815a (no PR number), 8007509 (#189), babf061 (#199)
 - **What happened**: The `get_feature_enabled_from_db()` function's lookup order was formalized, then expanded in #199 to five tiers: (1) `Setting` row in dynamic_settings, (2) `settings.FEATURE_ENABLED[name]` if that key exists (includes Dynaconf env var overrides), (3) `settings.FEATURE_<name>_ENABLED` top-level attribute (set by installer via `settings.yaml`), (4) DAB `AAPFlag` `FEATURE_<name>_ENABLED`, (5) the `default` parameter. Tier 3 was added because the installer writes top-level keys like `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml`, which Dynaconf surfaces as a settings attribute but not inside the `FEATURE_ENABLED` dict. A `sync_flag_values_from_settings()` function was also added to propagate installer overrides to AAPFlag rows so the Gateway UI reflects the installer's intent.
 - **Insight**: When multiple configuration sources exist, explicit precedence documentation is critical. The five-tier order ensures: runtime API changes (Setting) > Dynaconf env var overrides (FEATURE_ENABLED dict) > installer intent (top-level attr) > platform defaults (AAPFlag) > code defaults. Each source has a clear owner and override path. Omitting a key from `FEATURE_ENABLED` lets it fall through to the installer/AAPFlag/default path, useful for flags that should be platform-managed by default.
+- **Note**: The `FEATURE_ENABLED` dict was renamed to `FEATURE` in b7c4b1f (#250).
 
 ### load_task_feature_flags called from init-default-settings for pre-migrated environments
 - **Repo**: ansible/metrics-service
@@ -448,6 +402,7 @@
 - **Commits**: babf061 (#199)
 - **What happened**: The `get_feature_enabled_from_db()` lookup order was expanded from four to five tiers by adding a check for `settings.FEATURE_<name>_ENABLED` (top-level attribute set by the installer via `settings.yaml`) between the `FEATURE_ENABLED` dict check and the AAPFlag check. Full order: (1) `Setting` row, (2) `settings.FEATURE_ENABLED[name]`, (3) `settings.FEATURE_<name>_ENABLED` top-level attr, (4) AAPFlag, (5) default. A new `sync_flag_values_from_settings()` function propagates installer overrides to AAPFlag rows so the Gateway UI reflects the installer's intent.
 - **Insight**: The installer convention of writing `FEATURE_DASHBOARD_COLLECTION_ENABLED: True` directly into `settings.yaml` (as a top-level key, not inside the `FEATURE_ENABLED` dict) means Dynaconf surfaces it as a direct settings attribute. Without explicit handling in the precedence chain, this installer intent was invisible to the feature flag system. The sync function ensures the Gateway's AAPFlag rows match.
+- **Note**: The `FEATURE_ENABLED` dict was renamed to `FEATURE` in b7c4b1f (#250).
 
 ### Inline CORS middleware for dev-only cross-origin tools
 - **Repo**: ansible/metrics-service
@@ -571,6 +526,62 @@
 - **Insight**: An env-var list drifts silently because nothing fails when a variable is undocumented; the entries worth the most are the ones that correct a wrong description (a proxy shared with a second subsystem) or record an implicit behaviour (credentials that may legitimately be absent because boto3 resolves them elsewhere).
 
 ## Superseded / Semi-Obsolete
+
+### ALLOWED_HOSTS validator added for production then immediately disabled
+- **Repo**: ansible/metrics-service
+- **Commits**: 531b608 (#129), 6b4f17c (#137)
+- **What happened**: In #129, a production validator was added requiring `ALLOWED_HOSTS` to be a non-empty list. In #137 (one week later), this validator was commented out along with three others for the tech preview deployment.
+- **Insight**: The rapid add-then-disable cycle reflects the tension between security hardening (validating all production settings) and deployment pragmatism (the tech preview environment isn't fully configured yet). The commented-out validators serve as documentation of what will be enforced once gateway integration is complete.
+- **Superseded**: Re-enabled in 956923d (#193).
+
+### Production validators temporarily disabled for tech preview deployment
+- **Repo**: ansible/metrics-service
+- **Commits**: 6b4f17c (#137)
+- **What happened**: Four production validators were commented out (with "Optional until gateway APIs are implemented" comments): `RESOURCE_SERVER__SECRET_KEY`, `ANSIBLE_BASE_JWT_KEY`, `SEGMENT_WRITE_KEY`, and `ALLOWED_HOSTS`. A test was added to assert these settings do NOT have validators, ensuring they stay optional. The PR description says "Temp removing validators as TP wont support gateway correction."
+- **Insight**: For the tech preview (TP) release, the service will deploy without the AAP gateway integration (no JWT auth, no resource server). Disabling validators prevents the service from failing to start in environments where gateway config isn't available yet. The test asserting the absence of validators is a clever way to prevent someone from accidentally re-enabling them before gateway support is ready.
+- **Superseded**: Re-enabled with actionable messages in 956923d (#193).
+
+### Dashboard endpoint moved from /dashboard/ to /api/dashboard/
+- **Repo**: ansible/metrics-service
+- **Commits**: db116c4 (#184)
+- **What happened**: Dashboard URL changed from `/dashboard/` to `/api/dashboard/`. A redirect from `/api/v1/feature_flags/` to `/api/v1/feature_flags/states/` was added.
+- **Insight**: Placing the dashboard under `/api/` ensures it's covered by the same middleware and prefix handling as the REST API, simplifying gateway routing.
+- **Superseded**: The embedded dashboard was deleted in be9e010 (#253).
+
+### Feature flags now persist through DAB migrations via post_migrate signal
+- **Repo**: ansible/metrics-service
+- **Commits**: db116c4 (#184)
+- **What happened**: DAB's feature_flags app purges/reloads flags on every migration, deleting task-owned flags. A `feature_flags.yaml` defines the flags, and `TasksConfig.ready()` connects `load_task_feature_flags` to `post_migrate` of `FeatureFlagsConfig`, re-seeding after every DAB purge cycle.
+- **Insight**: When a third-party framework owns a model and purges/reloads it during migrations, application-specific records need a re-seeding mechanism. Using `post_migrate` connected to the framework's app ensures correct ordering.
+- **Superseded**: The YAML + `post_migrate` seeding was deleted in 13ad18b (#275).
+
+### FEATURE_FLAGS renamed to FEATURE_ENABLED to avoid AAP naming conflict
+- **Repo**: ansible/metrics-service
+- **Commits**: c8e5f0d (#36)
+- **What happened**: The settings dict was renamed from `FEATURE_FLAGS` to `FEATURE_ENABLED` across defaults.py, test.py, and task_groups.py. The `TaskGroup` class attribute `enabled_flag` was renamed to `enabled_setting`. The commit message says "changing feature flag to feature enable ... to avoid confusion with the actual feature flag in Ansible."
+- **Insight**: AAP already has a "feature flags" concept (from `ansible_base.feature_flags` which was disabled earlier). Using the same term in this service created confusion about which feature flag system was being referenced. The rename to `FEATURE_ENABLED` distinguishes this service's runtime toggles from AAP's feature flags system.
+- **Superseded**: Renamed again to `FEATURE` in b7c4b1f (#250).
+
+### URL prefix env var for gateway routing
+- **Repo**: ansible/metrics-service
+- **Commits**: 2efdae3 (#69), a64071c (#70)
+- **What happened**: A `METRICS_SERVICE_URL_PREFIX` env var was added (read via `os.getenv()` in the dashboard view) to prefix the API base URL when the service runs behind a gateway. If set (e.g., `METRICS_SERVICE_URL_PREFIX=metrics-service`), the dashboard's API calls go to `/<prefix>/api/v1/` instead of `/api/v1/`. The first attempt (#69) used `METRICS_URL_PREFIX`, renamed in #70 to follow the `METRICS_SERVICE_*` convention.
+- **Insight**: This was a stopgap solution for gateway routing. The proper fix came in 52c8fb5 (#75) with `ServicePrefixMiddleware` which handles prefix routing at the Django middleware level, making the env var approach unnecessary for most cases.
+- **Superseded**: Replaced by `settings.URL_PREFIX` in 7db9971 (#87), interpreted as a real path prefix since 85aed7f (#91).
+
+### DEVELOPER_MODE_ENABLED replaced by METRICS_SERVICE_MODE check
+- **Repo**: ansible/metrics-service
+- **Commits**: 7db9971 (#87)
+- **What happened**: The `DEVELOPER_MODE_ENABLED` setting and all references to it were removed. Instead, the `DeveloperModeRequired` permission class (renamed conceptually to development mode) now checks `settings.MODE == "development"`. The dashboard's `require_developer_mode` decorator was renamed to `require_development_mode` with the same MODE-based check. Test settings no longer need `DEVELOPER_MODE_ENABLED = True` since `METRICS_SERVICE_MODE=test` is already set and doesn't match "development". Tests that need dashboard/task API access now mock `settings.MODE` to return `"development"`.
+- **Insight**: Using the existing `MODE` setting (which already distinguishes development/test/production) to gate debug endpoints eliminates a separate boolean flag. This is cleaner because there's a single source of truth for "what environment am I in." The trade-off is that test mode can't access debug endpoints without mocking, which is arguably correct behavior.
+- **Superseded**: `DeveloperModeRequired` was deleted in be9e010 (#253); the tasks API uses `IsSystemAdminOrAuditor`.
+
+### DEVELOPER_MODE_ENABLED feature gate for production safety
+- **Repo**: ansible/metrics-service
+- **Commits**: dbf6fb1 (#65)
+- **What happened**: A `DEVELOPER_MODE_ENABLED` setting was added (default `False`) to `defaults.py`, overridable via `METRICS_SERVICE_DEVELOPER_MODE_ENABLED`. A `DeveloperModeRequired` DRF permission class in `apps/core/permissions.py` checks this setting and returns 403 when disabled. A `require_developer_mode` decorator (using `functools.wraps`) does the same for plain Django views. Both `TaskViewSet` and `TaskExecutionViewSet` switched from `permission_classes = [AllowAny]` (which was marked "Temporary for dashboard access") to `[DeveloperModeRequired]`. The dashboard view also gained the decorator. Test settings set `DEVELOPER_MODE_ENABLED = True`.
+- **Insight**: This is a clean pattern for gating debug/development endpoints in production: a single boolean setting controls access, checked at two layers (DRF permissions for API, decorator for views). The previous `AllowAny` permission on task endpoints was a security risk that persisted for months.
+- **Superseded**: `DEVELOPER_MODE_ENABLED` was removed in 7db9971 (#87); `DeveloperModeRequired` itself went in be9e010 (#253).
 
 ### SHOW_GAMIFICATION and SHOW_DASHBOARD: one admin-writable runtime flag, one flag ANDed with the caller's role
 - **Repo**: ansible/metrics-service

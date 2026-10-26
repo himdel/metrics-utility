@@ -236,6 +236,7 @@
 - **Commits**: 8d4ae7e (#183)
 - **What happened**: The `send_to_segment_daily` cron entry (3:30 AM) was removed. Instead, `daily_anonymize_and_prepare` now creates a one-time `send_anonymized_to_segment` Task inside the same atomic transaction as the payload, scheduled at `now + jitter` (0-239 minutes, seeded by installation UUID). The jitter is deterministic: same installation always gets the same offset, but different installations spread across 4 hours.
 - **Insight**: Fixed cron schedules cause thundering herd when many installations fire simultaneously. Deterministic jitter (seeded by a stable per-installation UUID) spreads load while keeping the schedule predictable for debugging. Creating the send task inside the anonymization transaction ensures sends are only scheduled when anonymization succeeds.
+- **Note**: The seeded jitter was replaced by truly random jitter in f7e2265 (#201); see "Segment send jitter changed from deterministic (service_id-seeded) to truly random" above.
 
 ### METRICS_COLLECTION feature flag added for local collection control
 - **Repo**: ansible/metrics-service

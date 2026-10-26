@@ -94,6 +94,7 @@
 - **Commits**: 0bacb2f (#94)
 - **What happened**: The earlier approach (from #51) used `importlib.util.find_spec('ansible_base')` to decide whether to import `advisory_lock` from `awx.main.utils.pglock` (AAP 2.4) or `ansible_base.lib.utils.db` (AAP 2.5). This broke because early AAP 2.5 versions still had `advisory_lock` in `awx.main.utils.pglock` even though `ansible_base` was already importable (the move happened in awx PR #15676). The fix switched to `try: from awx.main.utils.pglock import advisory_lock / except ImportError: from ansible_base.lib.utils.db import advisory_lock`, which handles the transitional period where both packages exist but the function hasn't moved yet.
 - **Insight**: When detecting which package provides a function, `try/except ImportError` on the actual import is more reliable than checking package availability with `find_spec` -- the package can exist without yet providing the function you need. **Supersedes** the earlier `find_spec` approach from commit 33d428e (#51).
+- **Note**: The lock was later extracted into `library/lock.py` in 2f14098 (#259), so neither import path is used now.
 
 ### Indirect managed nodes sheet got wrong columns depending on other optional sheets
 - **Repo**: ansible/metrics-utility
@@ -335,6 +336,7 @@
 - **Commits**: a044bd7 (#54)
 - **What happened**: The `post_save` signal added in edb4626 (#25) automatically routes newly saved Task objects to dispatcherd. In tests, `Task.objects.create()` triggered this signal, causing failures because dispatcherd wasn't running. Five test files needed refactoring to use `_create_task_safely()` which sets `_skip_signals = True` before saving.
 - **Insight**: Adding Django signals to models creates implicit side effects that affect every code path that creates/saves the model, including tests. The `_skip_signals` convention is a pragmatic workaround, but it means tests don't exercise the actual save behavior. A better pattern might be to check for a "testing" mode or use a factory function that explicitly opts into or out of signals.
+- **Note**: Signals were removed entirely in 85d2cbb (#57).
 
 ### `collections.json` loaded with hardcoded relative path, broke when CWD changed
 - **Repo**: ansible/metrics-utility
@@ -365,6 +367,7 @@
 - **Commits**: 2efdae3 (#69), a64071c (#70)
 - **What happened**: PR #69 added a `METRICS_URL_PREFIX` env var to the dashboard view so the API base URL could include a gateway prefix. PR #70 (two days later, same author) renamed it to `METRICS_SERVICE_URL_PREFIX` for consistency with the project's env var naming convention (`METRICS_SERVICE_*`). The fix was a one-line change.
 - **Insight**: The project's Dynaconf convention is that all env vars use the `METRICS_SERVICE_` prefix. A raw `os.getenv("METRICS_URL_PREFIX")` bypass doesn't follow this convention and would confuse operators. This was the kind of quick fix that should have been caught in code review -- naming consistency is a systematic concern, not a one-off decision.
+- **Note**: The env var was superseded by `settings.URL_PREFIX` in 7db9971 (#87).
 
 ### SettingSerializer referenced non-existent view after retrofit
 - **Repo**: ansible/metrics-service
@@ -575,6 +578,7 @@
 - **Commits**: 4474a6c (#383)
 - **What happened**: Segment's Python SDK batches `track()` calls into background HTTP POSTs, and silently drops events from batches exceeding 500KB (returning HTTP 200 with no error callback). Three approaches were tried: (1) `time.sleep` after flush -- race condition, process exits before background thread finishes; (2) batch size tracking with mid-loop `flush()` at 450KB -- still dropped events because the SDK adds 2-3KB of per-event metadata (context, timestamps, messageId, integrations) that the data-size estimate couldn't account for; (3) `analytics.sync_mode = True` -- sends each `track()` as a separate blocking HTTP request (~25KB each), eliminating both the batch-size and background-thread problems. End-to-end testing confirmed 15/15 chunks delivered reliably. Gzip compression was also tried but Segment silently rejects gzip-encoded bodies (HTTP 200, 0 events received).
 - **Insight**: When a third-party analytics SDK silently drops events from oversized batches and provides no reliable way to estimate the true per-event overhead, sync_mode (one HTTP request per event) is the only reliable delivery method, even at the cost of higher latency.
+- **Partially superseded**: The SDK was removed in 5b28769 (#574) in favour of direct HTTP batches, so `sync_mode` no longer applies; the silent-drop finding about the SDK stands.
 
 ### Subscription cost calculation was dividing monthly cost by 86400 instead of by actual elapsed seconds
 - **Repo**: ansible/metrics-service

@@ -1,16 +1,4 @@
 # CI/CD
-### Initial CI: super-linter with many validators disabled
-- **Repo**: ansible/metrics-utility
-- **Commits**: fe07c0e (#21)
-- **What happened**: The first CI workflow added GitHub's super-linter (v4) for static analysis, but disabled many validators: `VALIDATE_GITHUB_ACTIONS`, `VALIDATE_MARKDOWN`, `VALIDATE_PYTHON_MYPY`, `VALIDATE_PYTHON_FLAKE8`, `VALIDATE_NATURAL_LANGUAGE`. A pytest step was added but commented out (`# pytest -s -v tests/`). The workflow also uses jscpd for copy-paste detection with a 5% threshold.
-- **Insight**: The initial CI was scaffolding -- disabled validators and commented-out tests indicate the codebase was not yet lint-clean, but the workflow was set up early for incremental adoption.
-
-### Super-linter DEFAULT_BRANCH changed from main to devel, VALIDATE_ALL_CODEBASE set to false
-- **Repo**: ansible/metrics-utility
-- **Commits**: 6163cae (#38)
-- **What happened**: `DEFAULT_BRANCH` was changed from `"main"` to `"devel"` in the super-linter config to match the actual default branch. `VALIDATE_ALL_CODEBASE` was hardcoded to `false` (previously it used `${{ inputs.validate-all }}`), so the linter only checks changed files in PRs rather than the entire codebase.
-- **Insight**: The repo's default branch is `devel`, not `main` -- the super-linter must be told this so it only diffs against the correct base. Validating only changed files (not the full codebase) avoids CI failures from pre-existing lint issues in untouched code.
-
 ### PR checks workflow validates uv.lock is up-to-date
 - **Repo**: ansible/metrics-utility
 - **Commits**: 3cfd69d (#46)
@@ -107,12 +95,6 @@
 - **What happened**: Two large Tekton PipelineRun YAML files (~640 lines each) were added under `.tekton/` for pull-request and push pipelines. These pipelines use hermetic builds, multi-platform support (x86_64 + arm64), source image building, and prefetch dependencies from `requirements-build.txt`. The pipelines target the `konflux-configs` branch specifically.
 - **Insight**: Konflux pipelines are significantly more complex than GitHub Actions workflows, with explicit task chaining, OCI artifact storage, and enterprise scanning (SAST, SBOMs). The `prefetch-input` parameter requires pip-format requirements files, driving the need for the sync-requirements system.
 
-### Automated dependency sync system with GitHub Actions + pre-commit
-- **Repo**: ansible/metrics-service
-- **Commits**: f848024 (#24), e5eba36 (#30)
-- **What happened**: A `sync-requirements.sh` script was added that uses `uv export` and `uv pip compile` to generate `requirements-pinned.txt`, `dev-requirements.txt`, and `requirements-build.txt` from `uv.lock`. A GitHub Actions workflow (`sync-requirements.yml`) runs this on push to devel (auto-committing changes) and on PRs (failing if files are out of sync). A pre-commit hook was also added to auto-sync locally. In e5eba36, the workflow needed `permissions: contents: write` and `pull-requests: write` added because the default permissions were insufficient.
-- **Insight**: The sync-requirements system bridges the gap between uv (development) and Konflux (pip-based builds). The CI workflow has two modes: on push it auto-commits updated requirements, on PRs it fails if they're out of sync. The follow-up permissions fix (e5eba36) is a common pattern -- GitHub Actions workflows with write operations need explicit permissions that aren't obvious until the workflow fails.
-
 ### pytest workflow switched from pull_request_target to pull_request
 - **Repo**: ansible/metrics-service
 - **Commits**: e9ff8c9 (#27)
@@ -166,6 +148,7 @@
 - **Commits**: 8ba3c14 (#101)
 - **What happened**: The `sonar_checks.yml` workflow was updated to add PR state validation (checks if the PR is still `open` before running SonarCloud scan), HTTP status code checking for GitHub API calls (failing on non-200 responses instead of silently proceeding), and early exit if the commit-to-PR association list is empty. Redundant Sonar parameters (`sonar.host.url`, `sonar.organization`, `sonar.projectKey`) were removed from `pytest.yml` since they're set via env vars. All subsequent steps are gated with `if: steps.pr_state_check.outputs.state == 'open'`.
 - **Insight**: The original workflow would silently succeed on closed PRs or when the GitHub API returned errors, potentially missing legitimate scan failures. This hardening prevents wasted CI resources on closed PRs and ensures API errors are caught rather than producing confusing downstream failures.
+- **Partially superseded**: The `commits/{sha}/pulls` lookup was replaced by direct branch/SHA/repo matching in c4add8a (#134).
 
 ### Makemigrations check added to PR CI
 - **Repo**: ansible/metrics-service
@@ -509,6 +492,27 @@
 - **Insight**: A push-triggered mirror gives immediate downstream propagation on top of a slower scheduled fallback; using a scoped GitHub App token (minted per-run, restricted to the single target repo) rather than a broad PAT is the org-standard way to grant cross-org write, and separating the read (source clone with `github.token`) from the write (downstream push with the app token) keeps each credential minimally scoped. Because the workflow parameterizes the target off `github.event.repository.name`, the same file drops into both metrics-utility and metrics-service unchanged.
 
 ## Superseded / Semi-Obsolete
+
+### Automated dependency sync system with GitHub Actions + pre-commit
+- **Repo**: ansible/metrics-service
+- **Commits**: f848024 (#24), e5eba36 (#30)
+- **What happened**: A `sync-requirements.sh` script was added that uses `uv export` and `uv pip compile` to generate `requirements-pinned.txt`, `dev-requirements.txt`, and `requirements-build.txt` from `uv.lock`. A GitHub Actions workflow (`sync-requirements.yml`) runs this on push to devel (auto-committing changes) and on PRs (failing if files are out of sync). A pre-commit hook was also added to auto-sync locally. In e5eba36, the workflow needed `permissions: contents: write` and `pull-requests: write` added because the default permissions were insufficient.
+- **Insight**: The sync-requirements system bridges the gap between uv (development) and Konflux (pip-based builds). The CI workflow has two modes: on push it auto-commits updated requirements, on PRs it fails if they're out of sync. The follow-up permissions fix (e5eba36) is a common pattern -- GitHub Actions workflows with write operations need explicit permissions that aren't obvious until the workflow fails.
+- **Superseded**: The script, workflow and pre-commit hook were deleted in 531b608 (#129) when the Dockerfile switched to installing from `pyproject.toml`.
+
+### Super-linter DEFAULT_BRANCH changed from main to devel, VALIDATE_ALL_CODEBASE set to false
+- **Repo**: ansible/metrics-utility
+- **Commits**: 6163cae (#38)
+- **What happened**: `DEFAULT_BRANCH` was changed from `"main"` to `"devel"` in the super-linter config to match the actual default branch. `VALIDATE_ALL_CODEBASE` was hardcoded to `false` (previously it used `${{ inputs.validate-all }}`), so the linter only checks changed files in PRs rather than the entire codebase.
+- **Insight**: The repo's default branch is `devel`, not `main` -- the super-linter must be told this so it only diffs against the correct base. Validating only changed files (not the full codebase) avoids CI failures from pre-existing lint issues in untouched code.
+- **Superseded**: super-linter was replaced by uv+ruff in 243428e (#49) / 599fb17 (#59).
+
+### Initial CI: super-linter with many validators disabled
+- **Repo**: ansible/metrics-utility
+- **Commits**: fe07c0e (#21)
+- **What happened**: The first CI workflow added GitHub's super-linter (v4) for static analysis, but disabled many validators: `VALIDATE_GITHUB_ACTIONS`, `VALIDATE_MARKDOWN`, `VALIDATE_PYTHON_MYPY`, `VALIDATE_PYTHON_FLAKE8`, `VALIDATE_NATURAL_LANGUAGE`. A pytest step was added but commented out (`# pytest -s -v tests/`). The workflow also uses jscpd for copy-paste detection with a 5% threshold.
+- **Insight**: The initial CI was scaffolding -- disabled validators and commented-out tests indicate the codebase was not yet lint-clean, but the workflow was set up early for incremental adoption.
+- **Superseded**: super-linter was replaced by uv+ruff in 243428e (#49) / 599fb17 (#59); see "CI migrated from super-linter to uv+ruff" above.
 
 ### PR target glob `stable-*` for metrics-utility
 - **Repo**: ansible/metrics-utility

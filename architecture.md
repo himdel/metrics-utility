@@ -78,12 +78,6 @@
 - **What happened**: To run `build_report` (which only reads tarballs, not the Controller DB), a `mock_awx/` directory was added that provides stub implementations of `awx.prepare_env()`, `awx.main.utils.datetime_hook`, and `awx.main.utils.get_awx_version`. When `AWX_PATH` is not set and `awx` is not importable, `metrics_utility/__init__.py` now appends `mock_awx/` to `sys.path` instead of exiting with an error. The mock `prepare_env()` just sets `DJANGO_SETTINGS_MODULE` to a minimal settings module. A convenience script `run-ccsp2-build` was also added to run CCSPv2 report generation with test data.
 - **Insight**: The mock_awx pattern decouples report building from Controller, enabling development and testing without a running Controller instance -- only the gather command actually needs Controller's modules.
 
-### advisory_lock import switched from awx to django-ansible-base for AAP 2.5
-- **Repo**: ansible/metrics-utility
-- **Commits**: 33d428e (#51)
-- **What happened**: In AAP 2.5, `advisory_lock` moved from `awx.main.utils.pglock` to `ansible_base.lib.utils.db`. The collector now uses `importlib.util.find_spec('ansible_base')` at module level to detect which version is available: if `ansible_base` exists (2.5+), import from there; otherwise fall back to `awx.main.utils.pglock` (2.4). The `awx.main.utils` import was also moved below the `insights_analytics_collector` import to group external deps before internal ones.
-- **Insight**: When a utility function moves between packages across product versions, use `importlib.util.find_spec` for runtime detection rather than version-checking -- it's more robust and doesn't require knowing exact version numbers.
-
 ### mock_awx extended to support running gather (not just build_report) without Controller
 - **Repo**: ansible/metrics-utility
 - **Commits**: be761a3 (#52)
@@ -204,12 +198,6 @@
 - **What happened**: `apps/core/models.py` wraps all Django-Ansible-Base (DAB) imports in `try/except ImportError` blocks and provides simple fallback base classes (`CommonModel`, `NamedCommonModel`, `AbstractDABUser`, etc.) when DAB is not installed. A `DAB_AVAILABLE` boolean gates conditional behavior throughout the models.
 - **Insight**: This pattern allows the service to boot and run basic functionality without the full DAB dependency chain, but it creates two code paths that can drift apart -- every model feature must work with and without DAB.
 
-### Settings loaded via split_settings with DAB dynamic config
-- **Repo**: ansible/metrics-service
-- **Commits**: dd5603f
-- **What happened**: `metrics_service/settings/__init__.py` uses `split_settings.tools.include` to compose settings from `defaults.py`, `{environment}.py`, DAB's `dynamic_settings.py`, and `post_load.py` in a specific order. The environment is determined by `METRICS_SERVICE_ENV` (defaulting to `development`).
-- **Insight**: The split-settings + DAB dynamic_config approach means settings load order matters -- later files override earlier ones, and DAB's dynamic_settings can override app defaults. This was later replaced by Dynaconf in later commits (not in this batch).
-
 ### Permission registry registration disabled early due to content type issues
 - **Repo**: ansible/metrics-service
 - **Commits**: 141801c
@@ -258,12 +246,6 @@
 - **What happened**: Task models (`Task`, `TaskExecution`, `TaskChain`, etc.), task functions, and management commands were moved from `apps/core/` to a new `apps/tasks/` app. This included creating `apps/tasks/models.py`, `apps/tasks/tasks.py`, `apps/tasks/utils.py`, `apps/tasks/admin.py`, and new API endpoints under `apps/api/v1/tasks/`. The `apps/tasks/apps.py` was set up as a proper Django app config.
 - **Insight**: Separating the task system from the core app was necessary as it grew to hundreds of lines. The extraction followed the domain-driven pattern where each concern gets its own app. This also enabled cleaner test organization under `tests/unit/tasks/`.
 
-### Dashboard app added for task monitoring UI
-- **Repo**: ansible/metrics-service
-- **Commits**: c6947ce (#14)
-- **What happened**: A new `apps/dashboard/` app was added with a single-page HTML template (`dashboard.html`, ~1000 lines of inline HTML/CSS/JS) that displays real-time task status, execution history, and system metrics. The dashboard communicates with the API endpoints under `/api/v1/tasks/` via JavaScript fetch calls.
-- **Insight**: The dashboard is a monolithic HTML file with all JS/CSS inline, rather than using a proper frontend build system. This is pragmatic for a demo/monitoring tool but will be hard to maintain as it grows. It was enhanced further in edb4626 (#25) to ~1400 lines.
-
 ### Unified metrics_service management command as single entry point
 - **Repo**: ansible/metrics-service
 - **Commits**: c6947ce (#14), edb4626 (#25)
@@ -281,6 +263,7 @@
 - **Commits**: 5fe762a (#218)
 - **What happened**: A new `metrics_utility/library/` module was created to hold code shared between the CLI (metrics-utility) and an external metrics service. The library provides stub implementations of collectors, dataframes, extractors, packaging, storage, reports, and helpers (tempdir, lock, datetime instants). Key design decisions: (1) A `@collector` decorator dynamically creates anonymous `BaseCollector` subclasses from plain functions, so each collector function becomes a class with `collector_key` and `collector_fn` properties -- initialization (param passing) is separated from `.gather()` execution so DB locks can be acquired between the two. (2) Storage classes (`StorageS3`, `StorageDirectory`, `StorageCRC`) use `storage.get()` as a context manager that downloads to a temp file, yields the path, and cleans up. (3) Dataframes have `add_csv`/`add_parquet` methods feeding into a `regroup` template method that subclasses override. (4) The library must not import anything from outside `metrics_utility/library/` (other than external dependencies) and must not read environment variables -- all configuration comes via function parameters.
 - **Insight**: The `@collector` decorator pattern that creates anonymous subclasses avoids the boilerplate of defining a class per collector while preserving the two-phase init/gather separation needed for lock management -- the decorated function becomes both the constructor (returns a collector instance) and the gather logic (called by `BaseCollector.gather()`).
+- **Partially superseded**: The library was pruned to the metrics-service consumption surface in fd6626d (#540).
 
 ### Anonymized aggregation rollups as a new data processing layer
 - **Repo**: ansible/metrics-utility
@@ -294,18 +277,6 @@
 - **What happened**: Following the tarball naming change (#226), extractors and dataframe engines now filter which tarballs to open and which files to extract based on the collection name. Each dataframe engine declares which collections it needs (e.g., `DataframeJobhostSummaryUsage` needs `['job_host_summary', 'main_indirectmanagednodeaudit']`, `DataframeContentUsage` needs `['main_jobevent']`). The `iter_batches()` method gained `collections` and `optional` parameters. `filter_tarball_paths()` in the extract Base class uses regex to match tarball filenames against the requested collections, with backward compatibility for pre-0.7.0 tarballs that lack the collection suffix. `_safe_extract()` also gained an `enabled_set` parameter to skip extracting CSV files from within the tarball that aren't needed. The `indirect_nodes` key in `needed_data` was renamed to `main_indirectmanagednodeaudit` to match the actual collector name.
 - **Insight**: Filtering at two levels (which tarballs to open, and which files to extract from each tarball) provides a multiplicative optimization -- when a dataframe engine only needs `main_jobevent` data, it skips both the tarballs named `*-job_host_summary.tar.gz` and any non-jobevent CSV files inside the opened tarballs.
 
-### Service layer introduced for management command decomposition
-- **Repo**: ansible/metrics-service
-- **Commits**: edb4626 (#25)
-- **What happened**: A new `apps/core/services/` package was created with six service classes: `TaskManager`, `CronManager`, `SystemInitializer`, `ProcessManager`, `OutputFormatter`, and `ServiceConfig`. These were extracted from the monolithic `metrics_service` management command to decompose its 900+ lines into focused service objects.
-- **Insight**: The service layer pattern keeps management commands thin (they delegate to service objects), making the logic testable in isolation. Each service has a single responsibility: `ProcessManager` handles subprocess lifecycle, `CronManager` handles scheduling, etc.
-
-### Library storage implementations: Directory, S3, Segment, CRC, CRCMutual
-- **Repo**: ansible/metrics-utility
-- **Commits**: eaf3748 (#246)
-- **What happened**: The library's stub `storage.py` module was replaced with a `storage/` package containing five complete implementations: `StorageDirectory` (local filesystem), `StorageS3` (S3/MinIO via boto3), `StorageSegment` (Segment analytics, put-only), `StorageCRC` (console.redhat.com via service account OAuth), and `StorageCRCMutual` (CRC via mutual TLS). All share a common API: `put(name, *, filename=, fileobj=, dict=)`, `get(name)` (context manager yielding temp file path), `exists(name)`, `remove(name)`, `glob(pattern)`. A shared `util.py` provides `retry_with_backoff()` for transient failure handling in CRC uploads. Integration tests for Directory and S3 storage were added. The `minio` dev dependency was added to `pyproject.toml` for S3 tests.
-- **Insight**: The library storage classes mirror the CLI's existing PackageDirectory/PackageS3/PackageCRC pattern but with a simpler, unified API (put/get/exists/remove/glob) that works for both tarballs and dict data -- the library can pass configuration via constructor params instead of env vars, fulfilling the library's no-env-var design constraint.
-
 ### Anonymized rollups: full pipeline from gather to anonymized JSON output
 - **Repo**: ansible/metrics-utility
 - **Commits**: 2e9e826 (#239), 6ea3a3f (#247)
@@ -317,6 +288,7 @@
 - **Commits**: 6b5bbc6 (#249)
 - **What happened**: `StorageSegment.put()` was enhanced to handle data exceeding Segment's size limits (32KB for regular messages, 512MB for bulk). When data exceeds the limit, it is automatically split into chunks using `_split_into_chunks()` (for lists: accumulates items until size limit; for dicts: groups key-value pairs). Each chunk is sent as a separate `analytics.track()` call with `chunk_info` metadata (chunk number, total chunks, chunk size). A `use_bulk` constructor parameter selects between regular and bulk size limits. An `event_name` parameter was added to `put()` (defaulting to `'Metrics Artifact Upload'`).
 - **Insight**: Segment's 32KB per-message limit means anonymized rollup data (which can contain thousands of module/collection stats) must be chunked -- the chunking preserves reassembly metadata (chunk_number/total_chunks) so the receiving end can reconstruct the full payload.
+- **Partially superseded**: Bulk mode went in 828c8c1 (#372), and the SDK in 5b28769 (#574); chunking survives in the hand-rolled HTTP batches.
 
 ### Setting model provides DB-backed configuration with audit trail
 - **Repo**: ansible/metrics-service
@@ -377,18 +349,13 @@
 - **Commits**: 0854775 (#40)
 - **What happened**: The metrics collection tasks (`collect_config_metrics`, `collect_anonymous_metrics`, etc.) were changed from accepting a `db` connection string parameter to using Django's `connections` API. Each task now calls `connections[db_name]` where `db_name` defaults to `"awx"`, and the AWX database is configured in `DATABASES` settings. The connection object is passed directly to metrics-utility collectors.
 - **Insight**: Using Django's database routing (`DATABASES` dict + `connections[]`) for cross-service data access is cleaner than raw connection strings -- it gets connection pooling, SSL config, and lifecycle management for free. The `awx` database entry in settings can be overridden with `METRICS_SERVICE_DATABASES__awx__HOST` etc. via Dynaconf.
+- **Partially superseded**: The per-collector task functions were replaced by `collect_hourly_metrics`/`collect_snapshot_metrics` in 1580ff2 (#109), which use `get_db_connection()`.
 
 ### Anonymized rollups refactored: tarball loading replaced with direct CSV file input
 - **Repo**: ansible/metrics-utility
 - **Commits**: 6d8a8f1 (#272)
 - **What happened**: The `compute_anonymized_rollup_from_raw_data()` function previously accepted `(salt, year, month, day, base_path)` and internally searched for tarballs via `glob.glob()`, extracted CSVs from them, and loaded dataframes. This was replaced with an `input_data` dict parameter that maps collector names to lists of CSV file paths (e.g., `{'unified_jobs': ['/path/to/file1.csv', ...], ...}`). The tarball-opening logic was removed from `load_anonymized_rollup_data()` -- it now just iterates over file paths and calls `pd.read_csv()`. A new `compute_anonymized_rollup(db, salt, since, until, ship_path)` function calls library collectors directly (passing `db=connection`), collects their output file lists, and feeds them into the rollup pipeline. The `since`/`until` parameters replaced `year`/`month`/`day` throughout, enabling sub-day time ranges (tested with a half-day rollup test). The `save_rollup()` filenames changed from `key_YYYY_MM_DD` to `key_YYYY-MM-DD_YYYY-MM-DD` (since-until range).
 - **Insight**: Decoupling rollup computation from tarball discovery (passing file lists instead of a base path + glob) enables the rollups to work with data from any source -- library collectors that return file paths directly, or pre-extracted CSVs -- without the tight coupling to the tarball directory structure.
-
-### Health check app re-introduced for Kubernetes probes
-- **Repo**: ansible/metrics-service
-- **Commits**: e486eb4 (#41)
-- **What happened**: A new `apps/health/` app was created (the previous `apps/health/` was removed in 32c5dab during boilerplate cleanup). The new version has a single `health_check` view that calls `connection.ensure_connection()` to verify database connectivity, returning 200 with `{"status": "ok"}` or 503 with error details. It uses a plain Django function view with `@require_GET` rather than a DRF viewset.
-- **Insight**: The health check was removed during boilerplate cleanup because the original was template code, then re-added when the service needed real Kubernetes probes. Using a plain Django view (not DRF) is intentional -- health checks should have minimal dependencies and no authentication, so the DRF auth middleware is bypassed.
 
 ### Prometheus metrics integration via django-prometheus
 - **Repo**: ansible/metrics-service
@@ -582,12 +549,6 @@
 - **What happened**: A new `metrics_utility/library/collectors/service/` package was created alongside the existing `library/collectors/controller/` package. While controller collectors query the Controller (AWX) database, service collectors query the metrics-service's own database. The first service collector is `task_executions_service`, which reads from `tasks_taskexecution` to provide pipeline self-observability. This establishes a clear separation: `controller/` collectors need a Controller DB connection, `service/` collectors need a metrics-service DB connection.
 - **Insight**: Separating collectors by their database target (`controller/` vs `service/`) makes the connection requirements explicit -- a deployment running only Controller collectors doesn't need metrics-service DB credentials, and vice versa.
 
-### Feature flag architecture expanded to three-tier lookup with YAML definitions
-- **Repo**: ansible/metrics-service
-- **Commits**: d3fb802 (#168), db116c4 (#184)
-- **What happened**: Feature flags evolved: #168 split `METRICS_COLLECTION_GROUP` to scope `ANONYMIZED_DATA_COLLECTION` correctly; #184 added `feature_flags.yaml`, `post_migrate` signal for re-seeding after DAB purge, and three-tier lookup.
-- **Insight**: The system bridges three mechanisms: `Setting` model (runtime API-togglable), DAB `AAPFlag` (survives migrations via post_migrate), Django settings (env var fallback). See `settings_and_configuration.md` for precedence details and `task_system.md` for the feature flag evolution arc.
-
 ### Automation Dashboard backend added as dashboard_reports app
 - **Repo**: ansible/metrics-service
 - **Commits**: 150617a (#169)
@@ -611,6 +572,7 @@
 - **Commits**: 828c8c1 (#372), 4474a6c (#383)
 - **What happened**: The `use_bulk` constructor parameter and `BULK_MESSAGE_LIMIT` (500MB) were removed from `StorageSegment` in #372 -- all messages now use the regular 24KB chunk limit. The chunking algorithm was also improved: instead of summing separate item sizes (which underestimates because it ignores the wrapping `{key: [...]}` structure), the new code builds a trial `{key: active_chunk[key] + [item]}` and measures the full JSON size before deciding to split. In #383, `analytics.sync_mode = True` was enabled to fix silent event loss: Segment's SDK batches `track()` calls into background HTTP POSTs that silently drop events when the batch exceeds 500KB (returning HTTP 200 with no error). sync_mode sends each `track()` as a separate blocking HTTP request, eliminating both the batch-size and background-thread race condition problems. Gzip compression was also tried but Segment silently rejects gzip-encoded bodies.
 - **Insight**: When a third-party SDK silently drops data on oversized batches and provides no reliable way to estimate true per-event overhead, sync_mode (one HTTP request per event) is the only reliable approach. **Supersedes** the `use_bulk` option from #249 and extends the chunking fixes from #281. **Itself superseded by 5b28769 (#574)**, which dropped the SDK entirely for direct HTTP `/v1/batch` sends -- and found that Segment's raw HTTP API accepts gzip fine, contrary to the SDK experience above.
+- **Partially superseded**: The SDK (and `sync_mode`) was dropped for direct `requests.post` to `/v1/batch` in 5b28769 (#574); the `use_bulk` removal still stands.
 
 ### Health endpoint status vocabulary aligned with AAP platform constants
 - **Repo**: ansible/metrics-service
@@ -735,6 +697,55 @@
 - **Insight**: When the same collector output feeds both internal and external consumers, strip sensitive columns at the points where data leaves the service and leave the internal path untouched. An exclusion applied by key also needs to know the payload's shape, otherwise it can silently do nothing or remove the wrong thing.
 
 ## Superseded / Semi-Obsolete
+
+### Feature flag architecture expanded to three-tier lookup with YAML definitions
+- **Repo**: ansible/metrics-service
+- **Commits**: d3fb802 (#168), db116c4 (#184)
+- **What happened**: Feature flags evolved: #168 split `METRICS_COLLECTION_GROUP` to scope `ANONYMIZED_DATA_COLLECTION` correctly; #184 added `feature_flags.yaml`, `post_migrate` signal for re-seeding after DAB purge, and three-tier lookup.
+- **Insight**: The system bridges three mechanisms: `Setting` model (runtime API-togglable), DAB `AAPFlag` (survives migrations via post_migrate), Django settings (env var fallback). See `settings_and_configuration.md` for precedence details and `task_system.md` for the feature flag evolution arc.
+- **Superseded**: `feature_flags.yaml` and the `post_migrate` seeding were deleted in 13ad18b (#275); the lookup grew to five tiers in babf061 (#199).
+
+### Health check app re-introduced for Kubernetes probes
+- **Repo**: ansible/metrics-service
+- **Commits**: e486eb4 (#41)
+- **What happened**: A new `apps/health/` app was created (the previous `apps/health/` was removed in 32c5dab during boilerplate cleanup). The new version has a single `health_check` view that calls `connection.ensure_connection()` to verify database connectivity, returning 200 with `{"status": "ok"}` or 503 with error details. It uses a plain Django function view with `@require_GET` rather than a DRF viewset.
+- **Insight**: The health check was removed during boilerplate cleanup because the original was template code, then re-added when the service needed real Kubernetes probes. Using a plain Django view (not DRF) is intentional -- health checks should have minimal dependencies and no authentication, so the DRF auth middleware is bypassed.
+- **Superseded**: `apps/health/` was removed again in 52c8fb5 (#75); health and ping views now live in `apps/core/views/`.
+
+### Library storage implementations: Directory, S3, Segment, CRC, CRCMutual
+- **Repo**: ansible/metrics-utility
+- **Commits**: eaf3748 (#246)
+- **What happened**: The library's stub `storage.py` module was replaced with a `storage/` package containing five complete implementations: `StorageDirectory` (local filesystem), `StorageS3` (S3/MinIO via boto3), `StorageSegment` (Segment analytics, put-only), `StorageCRC` (console.redhat.com via service account OAuth), and `StorageCRCMutual` (CRC via mutual TLS). All share a common API: `put(name, *, filename=, fileobj=, dict=)`, `get(name)` (context manager yielding temp file path), `exists(name)`, `remove(name)`, `glob(pattern)`. A shared `util.py` provides `retry_with_backoff()` for transient failure handling in CRC uploads. Integration tests for Directory and S3 storage were added. The `minio` dev dependency was added to `pyproject.toml` for S3 tests.
+- **Insight**: The library storage classes mirror the CLI's existing PackageDirectory/PackageS3/PackageCRC pattern but with a simpler, unified API (put/get/exists/remove/glob) that works for both tarballs and dict data -- the library can pass configuration via constructor params instead of env vars, fulfilling the library's no-env-var design constraint.
+- **Superseded**: Pruned to `StorageSegment` alone in fd6626d (#540); see "Library and anonymized_rollups pruned to the metrics-service consumption surface" above.
+
+### Service layer introduced for management command decomposition
+- **Repo**: ansible/metrics-service
+- **Commits**: edb4626 (#25)
+- **What happened**: A new `apps/core/services/` package was created with six service classes: `TaskManager`, `CronManager`, `SystemInitializer`, `ProcessManager`, `OutputFormatter`, and `ServiceConfig`. These were extracted from the monolithic `metrics_service` management command to decompose its 900+ lines into focused service objects.
+- **Insight**: The service layer pattern keeps management commands thin (they delegate to service objects), making the logic testable in isolation. Each service has a single responsibility: `ProcessManager` handles subprocess lifecycle, `CronManager` handles scheduling, etc.
+- **Superseded**: The service classes were deleted as dead code in e137d39 (#92).
+
+### Dashboard app added for task monitoring UI
+- **Repo**: ansible/metrics-service
+- **Commits**: c6947ce (#14)
+- **What happened**: A new `apps/dashboard/` app was added with a single-page HTML template (`dashboard.html`, ~1000 lines of inline HTML/CSS/JS) that displays real-time task status, execution history, and system metrics. The dashboard communicates with the API endpoints under `/api/v1/tasks/` via JavaScript fetch calls.
+- **Insight**: The dashboard is a monolithic HTML file with all JS/CSS inline, rather than using a proper frontend build system. This is pragmatic for a demo/monitoring tool but will be hard to maintain as it grows. It was enhanced further in edb4626 (#25) to ~1400 lines.
+- **Superseded**: `apps/dashboard/` was deleted in be9e010 (#253); see "Embedded dashboard app removed" above.
+
+### Settings loaded via split_settings with DAB dynamic config
+- **Repo**: ansible/metrics-service
+- **Commits**: dd5603f
+- **What happened**: `metrics_service/settings/__init__.py` uses `split_settings.tools.include` to compose settings from `defaults.py`, `{environment}.py`, DAB's `dynamic_settings.py`, and `post_load.py` in a specific order. The environment is determined by `METRICS_SERVICE_ENV` (defaulting to `development`).
+- **Insight**: The split-settings + DAB dynamic_config approach means settings load order matters -- later files override earlier ones, and DAB's dynamic_settings can override app defaults. This was later replaced by Dynaconf in later commits (not in this batch).
+- **Superseded**: Replaced by Dynaconf in 8b4aa31 (#26).
+
+### advisory_lock import switched from awx to django-ansible-base for AAP 2.5
+- **Repo**: ansible/metrics-utility
+- **Commits**: 33d428e (#51)
+- **What happened**: In AAP 2.5, `advisory_lock` moved from `awx.main.utils.pglock` to `ansible_base.lib.utils.db`. The collector now uses `importlib.util.find_spec('ansible_base')` at module level to detect which version is available: if `ansible_base` exists (2.5+), import from there; otherwise fall back to `awx.main.utils.pglock` (2.4). The `awx.main.utils` import was also moved below the `insights_analytics_collector` import to group external deps before internal ones.
+- **Insight**: When a utility function moves between packages across product versions, use `importlib.util.find_spec` for runtime detection rather than version-checking -- it's more robust and doesn't require knowing exact version numbers.
+- **Superseded**: The `find_spec` detection was replaced by try/except in 0bacb2f (#94), then the lock was extracted into `library/lock.py` in 2f14098 (#259).
 
 ### `library/collectors/awx/` fifth subpackage
 - **Repo**: ansible/metrics-utility

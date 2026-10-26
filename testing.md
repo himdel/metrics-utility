@@ -203,12 +203,6 @@
 - **What happened**: Tests under `tests/unit/` were moved into subdirectories: `tests/unit/api/`, `tests/unit/core/`, `tests/unit/dashboard/`, `tests/unit/general/`, and `tests/unit/tasks/`. Each subdirectory got an `__init__.py` file. Existing test files were moved without renaming (e.g., `test_api_views.py` moved from `tests/unit/` to `tests/unit/api/`). Many new test files were added for the new service layer and task system components.
 - **Insight**: The subdirectory organization mirrors the app structure, making it easy to find tests for a specific component. The 80% coverage target was achieved in this commit, with comprehensive tests for the new service layer classes.
 
-### Library storage integration tests for Directory and S3
-- **Repo**: ansible/metrics-utility
-- **Commits**: eaf3748 (#246)
-- **What happened**: Integration tests were added for `StorageDirectory` and `StorageS3` in `metrics_utility/test/library/`. The directory test validates `put()` (with dict=, filename=, and fileobj= modes), `get()` (context manager yielding temp path), `exists()`, `remove()`, and `glob()`. The S3 test uses the existing MinIO instance from CI and validates the same operations against real S3-compatible storage. Both tests use `pytest.raises` to verify error cases (e.g., put with no data arguments). The S3 test uses a pid-based prefix to avoid conflicts with other tests using the same MinIO bucket.
-- **Insight**: Using a pid-based S3 key prefix (`test-{os.getpid()}/`) prevents test data collisions when the same MinIO bucket is shared across multiple test suites running in CI.
-
 ### End-to-end anonymized rollup test: gather -> rollup -> anonymize -> validate JSON
 - **Repo**: ansible/metrics-utility
 - **Commits**: 2e9e826 (#239), 6ea3a3f (#247)
@@ -233,41 +227,17 @@
 - **What happened**: The test settings `INSTALLED_APPS` was updated to include `DAB_APPS` (which was previously missing) and added several third-party apps that the test config was missing (`rest_framework.authtoken`, `drf_spectacular`, `corsheaders`, `social_django`). This aligned the test installed apps with the production `defaults.py` config.
 - **Insight**: Tests running with a different set of installed apps than production can pass even when production would fail (e.g., missing URL routes, missing middleware, missing model registrations). Aligning the test `INSTALLED_APPS` prevents this class of bugs.
 
-### _create_task_safely pattern to suppress Django signals in tests
-- **Repo**: ansible/metrics-service
-- **Commits**: a044bd7 (#54)
-- **What happened**: Tests were refactored to use a `_create_task_safely()` helper method instead of `Task.objects.create()`. The helper creates a `Task` instance, sets `task._skip_signals = True`, then calls `task.save()`. This was applied across 5 test files (api, task_system, tasks_comprehensive, tasks_utils, tasks_views). Some tests also gained `@pytest.mark.django_db(transaction=True)` where actual DB interactions with signal-driven side effects were being tested.
-- **Insight**: The `post_save` signal on the Task model (added in edb4626 #25) automatically routes tasks to dispatcherd when created. In tests, this causes failures because dispatcherd isn't running. The `_skip_signals` attribute is a convention where the signal handler checks for it and skips processing. The pattern is duplicated as a method on each test class rather than being a shared fixture/utility, which is pragmatic but introduces repetition.
-
-### METRICS_UTILITY_AVAILABLE patching pattern for testing without optional dependency
-- **Repo**: ansible/metrics-service
-- **Commits**: 7b39f53 (#56)
-- **What happened**: Integration tests for collector tasks patch `METRICS_UTILITY_AVAILABLE` (a module-level boolean in `tasks_collector.py`) to control whether the metrics-utility library appears available. Combined with the `None` fallback attributes for collector objects, this allows tests to exercise both the "library available" and "library not available" code paths without actually installing the dependency.
-- **Insight**: For optional dependencies that may not be present in CI, defining a module-level availability flag and providing `None` fallbacks allows comprehensive testing. The flag can be patched per-test to exercise error handling paths.
-
 ### Redundant django.setup() removed from test files -- conftest handles it
 - **Repo**: ansible/metrics-service
 - **Commits**: 78fdf9f (#61)
 - **What happened**: `tests/test_common.py` had a `setup_django_for_tests()` function that manually configured Django settings (with `settings.configure()`, `sys.path.insert`, and `django.setup()`). Both `test_coverage.py` and `test_simple.py` imported and called this function at module level. Since `conftest.py` already handles Django setup (and pytest-django sets `DJANGO_SETTINGS_MODULE`), these manual setups were redundant. The function was deleted and the import/calls removed from both test files.
 - **Insight**: Having redundant Django setup code is a maintenance burden and can cause subtle issues if the manual `settings.configure()` conflicts with the pytest-django setup. When using pytest-django with `DJANGO_SETTINGS_MODULE` in `pyproject.toml`, no test file should ever call `settings.configure()` or `django.setup()` manually. The conftest.py is the single source of truth for test environment setup.
 
-### Developer mode must be enabled in test settings
-- **Repo**: ansible/metrics-service
-- **Commits**: dbf6fb1 (#65)
-- **What happened**: When `DEVELOPER_MODE_ENABLED` was added (defaulting to `False`) to gate the tasks API and dashboard, `DEVELOPER_MODE_ENABLED = True` was added to `test.py` settings. Without this, all task API tests would get 403 Forbidden responses and fail.
-- **Insight**: Any new feature gate or permission check that defaults to restrictive must be explicitly enabled in test settings. Forgetting this causes mass test failures that are confusing because the tests "used to work." Adding a dedicated test for the disabled case (as was done with `test_developer_mode_permissions.py`) verifies the gate works without breaking the rest of the suite.
-
 ### Large test reorganization for metrics collection
 - **Repo**: ansible/metrics-service
 - **Commits**: 3a58426 (#79)
 - **What happened**: A significant test reorganization accompanied the metrics collection feature: old test files were renamed or replaced (e.g., `test_models_edge_cases.py` -> `test_models.py`), deprecated test files were removed (e.g., `test_tasks_collector_complete_coverage.py`, `test_tasks_comprehensive.py`, `test_task_retry_bug.py`), and new comprehensive test files were added (`test_tasks_collector_advanced.py`, `test_tasks_collector_full_coverage.py`, `test_tasks_system.py`, `test_tasks_api_views.py`, `test_v1_base_serializers.py`, `test_v1_urls.py`, `test_mixins.py`). New conftest fixtures were added for task creation and scheduler mocking.
 - **Insight**: The PR's 28 squashed commits show that tests were written iteratively during development, with multiple rounds of "fix tests" commits. This pattern of writing tests alongside feature code in a large PR makes it hard to review test quality. The conftest fixtures for task creation centralize what was previously duplicated across test classes.
-
-### Tests use override_settings(MODE="development") for dev-gated endpoints
-- **Repo**: ansible/metrics-service
-- **Commits**: 7db9971 (#87)
-- **What happened**: When `DEVELOPER_MODE_ENABLED` was replaced by `settings.MODE == "development"` for gating the tasks API and dashboard, tests switched from `DEVELOPER_MODE_ENABLED = True` in test settings to `@override_settings(MODE="development")` on individual test methods. This was necessary because `METRICS_SERVICE_MODE=test` is set in CI, and tests shouldn't globally override MODE.
-- **Insight**: Using `@override_settings` per-test is more precise than setting a global test setting. It documents which tests depend on development mode and doesn't affect tests that should work in non-development mode. The test file `test_developer_mode_permissions.py` was renamed to `test_development_mode_permissions.py` to match the new terminology.
 
 ### Massive test cleanup removed 2000+ lines of obsolete tests
 - **Repo**: ansible/metrics-service
@@ -480,6 +450,41 @@
 - **Insight**: Cross-repo field renames require updating both the producer (metrics-utility rollup) and the consumer (metrics-service mocks/tests). When a field rename is driven by an external constraint (Segment's "name" filtering), search both repos for the old field name to catch stale references in test fixtures.
 
 ## Superseded / Semi-Obsolete
+
+### _create_task_safely pattern to suppress Django signals in tests
+- **Repo**: ansible/metrics-service
+- **Commits**: a044bd7 (#54)
+- **What happened**: Tests were refactored to use a `_create_task_safely()` helper method instead of `Task.objects.create()`. The helper creates a `Task` instance, sets `task._skip_signals = True`, then calls `task.save()`. This was applied across 5 test files (api, task_system, tasks_comprehensive, tasks_utils, tasks_views). Some tests also gained `@pytest.mark.django_db(transaction=True)` where actual DB interactions with signal-driven side effects were being tested.
+- **Insight**: The `post_save` signal on the Task model (added in edb4626 #25) automatically routes tasks to dispatcherd when created. In tests, this causes failures because dispatcherd isn't running. The `_skip_signals` attribute is a convention where the signal handler checks for it and skips processing. The pattern is duplicated as a method on each test class rather than being a shared fixture/utility, which is pragmatic but introduces repetition.
+- **Superseded**: Signals were removed in 85d2cbb (#57), making the helper unnecessary.
+
+### Library storage integration tests for Directory and S3
+- **Repo**: ansible/metrics-utility
+- **Commits**: eaf3748 (#246)
+- **What happened**: Integration tests were added for `StorageDirectory` and `StorageS3` in `metrics_utility/test/library/`. The directory test validates `put()` (with dict=, filename=, and fileobj= modes), `get()` (context manager yielding temp path), `exists()`, `remove()`, and `glob()`. The S3 test uses the existing MinIO instance from CI and validates the same operations against real S3-compatible storage. Both tests use `pytest.raises` to verify error cases (e.g., put with no data arguments). The S3 test uses a pid-based prefix to avoid conflicts with other tests using the same MinIO bucket.
+- **Insight**: Using a pid-based S3 key prefix (`test-{os.getpid()}/`) prevents test data collisions when the same MinIO bucket is shared across multiple test suites running in CI.
+- **Superseded**: `StorageDirectory`/`StorageS3` were deleted from the library in fd6626d (#540).
+
+### Tests use override_settings(MODE="development") for dev-gated endpoints
+- **Repo**: ansible/metrics-service
+- **Commits**: 7db9971 (#87)
+- **What happened**: When `DEVELOPER_MODE_ENABLED` was replaced by `settings.MODE == "development"` for gating the tasks API and dashboard, tests switched from `DEVELOPER_MODE_ENABLED = True` in test settings to `@override_settings(MODE="development")` on individual test methods. This was necessary because `METRICS_SERVICE_MODE=test` is set in CI, and tests shouldn't globally override MODE.
+- **Insight**: Using `@override_settings` per-test is more precise than setting a global test setting. It documents which tests depend on development mode and doesn't affect tests that should work in non-development mode. The test file `test_developer_mode_permissions.py` was renamed to `test_development_mode_permissions.py` to match the new terminology.
+- **Superseded**: Unnecessary since be9e010 (#253) switched the tasks API to RBAC.
+
+### Developer mode must be enabled in test settings
+- **Repo**: ansible/metrics-service
+- **Commits**: dbf6fb1 (#65)
+- **What happened**: When `DEVELOPER_MODE_ENABLED` was added (defaulting to `False`) to gate the tasks API and dashboard, `DEVELOPER_MODE_ENABLED = True` was added to `test.py` settings. Without this, all task API tests would get 403 Forbidden responses and fail.
+- **Insight**: Any new feature gate or permission check that defaults to restrictive must be explicitly enabled in test settings. Forgetting this causes mass test failures that are confusing because the tests "used to work." Adding a dedicated test for the disabled case (as was done with `test_developer_mode_permissions.py`) verifies the gate works without breaking the rest of the suite.
+- **Superseded**: Replaced by `@override_settings(MODE="development")` in 7db9971 (#87), then unnecessary after be9e010 (#253).
+
+### METRICS_UTILITY_AVAILABLE patching pattern for testing without optional dependency
+- **Repo**: ansible/metrics-service
+- **Commits**: 7b39f53 (#56)
+- **What happened**: Integration tests for collector tasks patch `METRICS_UTILITY_AVAILABLE` (a module-level boolean in `tasks_collector.py`) to control whether the metrics-utility library appears available. Combined with the `None` fallback attributes for collector objects, this allows tests to exercise both the "library available" and "library not available" code paths without actually installing the dependency.
+- **Insight**: For optional dependencies that may not be present in CI, defining a module-level availability flag and providing `None` fallbacks allows comprehensive testing. The flag can be patched per-test to exercise error handling paths.
+- **Superseded**: `tasks_collector.py` and the flag were deleted in e137d39 (#92).
 
 ### Tests in tests/unit/ alongside tests/test_*.py
 - **Repo**: ansible/metrics-service
