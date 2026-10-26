@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | ab731a8 | 2026-10-13 | update AWX schema dump (f8314ad) (#610) |
+| metrics-utility | da9180f | 2026-10-21 | revert: remove event collection metadata (#611) |
 | metrics-service | 26545f2 | 2026-10-19 | use postgres mirror in GitHub workflows (#476) |
 | awx | 918ba2ef36 | 2026-10-12 | AAP-95887 Use SKIP LOCKED to prevent lock convoy on parent JT update (#16719) |
 

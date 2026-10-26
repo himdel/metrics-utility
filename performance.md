@@ -127,6 +127,12 @@
 - **Insight**: An aggregate endpoint stays cheap when the query count is a property of the *response shape* (how many groupings it reports) instead of the data volume -- do the GROUP BYs in the database, roll them up in Python, and fetch display names only for the rows that will actually be rendered.
 - **NOTE**: 8e96c2d (#481) widened the username lookup from the <= 30 visible ids to every ranked user (names now break ties, and a tie at the top-10 cutoff can involve anyone) -- still a single query; 99565f1 (#486) added one more service-DB query (window template ids) and one short-lived AWX connection per request (query guard 15 -> 16).
 
+### `Base.merge()` dropped `.loc[:,]` copies, halving peak memory of each rollup merge
+- **Repo**: ansible/metrics-utility
+- **Commits**: e1071a4 (#608)
+- **What happened**: AAP-96713, from a support case where a 30-day CCSPv2 report on a deployment with ~550 MiB/day of job-event data hit OOM. `dataframe_engine/base.py` `Base.merge()` called `pd.merge(rollup.loc[:,], new_group.loc[:,], ...)`. Each `.loc[:,]` makes a full copy, and `pd.merge` never modifies its inputs, so the copies protected nothing. At peak the method held about 4x the rollup size (original, two copies, result). Passing the frames directly brings that to about 2x (old rollup until reassignment, plus the result). The final day's merge of the month's `main_jobevent` rollup in each `build_dataframe()` is the biggest single allocation, so this is where the OOM happened. Behavior is unchanged; the existing dataframe-engine and CCSP snapshot tests cover it.
+- **Insight**: Defensive `.loc[:,]`/`.copy()` calls before pandas functions that already return new frames (`merge`, `concat`, most non-`inplace` ops) only add memory. In an accumulate-and-merge loop they multiply the peak by the size of the accumulator.
+
 ## Superseded / Semi-Obsolete
 
 ### http_benchmark.py (GET-endpoint latency tests)

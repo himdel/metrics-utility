@@ -437,12 +437,6 @@
 - **What happened**: CI already checked that the committed schema is up to date and spec-valid, which did not catch `org_streak.organization: null` being rejected by the schema (api_design.md, "allow_null ... allOf"). `tests/unit/dashboard_reports/test_leaderboard_schema.py` generates the schema in-process with `drf_spectacular.generators.SchemaGenerator().get_schema(request=None, public=True)`, takes `components.schemas.OrgStreak`, and validates sample payloads with `openapi_schema_validator.OAS30Validator(..., resolver=RefResolver.from_schema(schema))` -- parametrised so `None` and populated orgs must pass and `{}` / a string id must fail.
 - **Insight**: "The spec is valid" and "the spec accepts our responses" are different checks; a small parametrised validator test over edge-case payloads (nulls especially) catches generator quirks that schema diffing never will.
 
-### DB-backed collector test mutates the shared compose fixture in place, and restores it in `finally`
-- **Repo**: ansible/metrics-utility
-- **Commits**: 202a4c8 (#606)
-- **What happened**: `test_collectors_event_collection_fields_db.py` covers the new `collection_name`/`collection_version` columns against real PostgreSQL. It does not build its own schema. The fixture calls `connection.ensure_connection()` and does `pytest.skip` on `OperationalError`, or when `main_unifiedjob id=1` is missing. It then saves that job's `installed_collections`, overwrites it with a known JSONB map, and inserts seven `main_jobevent` rows with uuid-suffixed `task_uuid`/`uuid` values (valid, versionless, unknown collection, one-part, two-part, malformed, absent `resolved_action`). In a `finally` it deletes those rows by uuid and writes back the original `installed_collections`, re-serialising it if psycopg returned a dict. One parametrized test runs both `events_table` and `main_jobevent_service` against the same rows and uses `pd.isna` for the expected NULLs.
-- **Insight**: To seed edge cases into a shared fixture DB, insert rows with unique ids, save any rows you modify, and undo both in `finally`. Parametrizing over sibling collectors confirms that duplicated SQL gives the same results.
-
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py
@@ -506,3 +500,10 @@
 - **Commits**: e4ba452 (#350)
 - **What happened**: After metrics-utility renamed `collection_name` to `collection` in the indirect nodes rollup (m-u PRs #484/#485) to work around Segment silently filtering properties containing the substring "name", a test mock in `test_collect_daily_indirect_nodes.py` still used the old `collection_name` key. PR #350 updated the mock to use `collection` to match the upstream data shape.
 - **Insight**: Cross-repo field renames require updating both the producer (metrics-utility rollup) and the consumer (metrics-service mocks/tests). When a field rename is driven by an external constraint (Segment's "name" filtering), search both repos for the old field name to catch stale references in test fixtures.
+
+### DB-backed collector test mutates the shared compose fixture in place, and restores it in `finally`
+- **Repo**: ansible/metrics-utility
+- **Commits**: 202a4c8 (#606)
+- **What happened**: `test_collectors_event_collection_fields_db.py` covers the new `collection_name`/`collection_version` columns against real PostgreSQL. It does not build its own schema. The fixture calls `connection.ensure_connection()` and does `pytest.skip` on `OperationalError`, or when `main_unifiedjob id=1` is missing. It then saves that job's `installed_collections`, overwrites it with a known JSONB map, and inserts seven `main_jobevent` rows with uuid-suffixed `task_uuid`/`uuid` values (valid, versionless, unknown collection, one-part, two-part, malformed, absent `resolved_action`). In a `finally` it deletes those rows by uuid and writes back the original `installed_collections`, re-serialising it if psycopg returned a dict. One parametrized test runs both `events_table` and `main_jobevent_service` against the same rows and uses `pd.isna` for the expected NULLs.
+- **Insight**: To seed edge cases into a shared fixture DB, insert rows with unique ids, save any rows you modify, and undo both in `finally`. Parametrizing over sibling collectors confirms that duplicated SQL gives the same results.
+- **Removed** in da9180f (#611) together with the feature it tested (the revert of #606 deleted `test_collectors_event_collection_fields_db.py`). The save-and-restore pattern itself is still sound if a future test needs to seed the shared fixture DB.
