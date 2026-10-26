@@ -443,28 +443,6 @@
 - **What happened**: The `job_data` fixtures in `tests/unit/dashboard_reports/test_export_urls.py` and `test_report_view_data.py` (mirrors of each other) offset jobs from `get_now()`. #282 had already moved the recent pair from minute- to hour-scale offsets (3h and 2h ago) to dodge a midnight flake, but that only moved the failure window: between 01:00 and 02:59 UTC one job of a pair still landed on the previous day, so `test_trends_granularity_matches_period` (`last_14_days` -> day granularity) saw three date buckets instead of two. Both fixtures now use `get_now().replace(hour=0, minute=0, second=0, microsecond=0)` as the anchor. `TestExportTrendsCSV` also gained an autouse `fixed_now` fixture that patches both the module's `get_now` and `apps.dashboard_reports.filters.datetime` (a `MagicMock(wraps=datetime)` with `datetime.now` stubbed), defaulting to 2026-06-15 12:00 UTC but reading a `simulated_now` param from `request.node.callspec` when present. The granularity test is parametrized over 01:00, 02:00 and 02:59 UTC, the hours that used to fail, and asserts `get_now() == simulated_now` so the pin can't silently stop working.
 - **Insight**: Relative-to-now offsets only move a day-boundary flake around; anchor the fixture at the start of the day, and pin the clock to the hours that used to fail so the regression is tested on every run rather than only when CI happens to hit that time.
 
-## Superseded / Semi-Obsolete
-
-### Tests in tests/unit/ alongside tests/test_*.py
-- **Repo**: ansible/metrics-service
-- The early test structure had both `tests/unit/` subdirectory tests and top-level `tests/test_*.py` files. In edb4626 (#25), tests were reorganized into `tests/unit/{api,core,dashboard,general,tasks}/` subdirectories.
-
-### SQLite in-memory test database
-- **Repo**: ansible/metrics-service
-- The `"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"` test config and the `DisableMigrations` class were removed in c8e5f0d (#36). Tests now use PostgreSQL with `--reuse-db`.
-
-### _create_task_safely pattern to suppress signals
-- **Repo**: ansible/metrics-service
-- The `_skip_signals` workaround from a044bd7 (#54) is no longer needed after signals were removed in 85d2cbb (#57). Tests now use plain `Task.objects.create()`.
-
-### Manual setup_django_for_tests() in test files
-- **Repo**: ansible/metrics-service
-- Removed in 78fdf9f (#61). The conftest.py and pytest-django handle Django setup; no test file should call `django.setup()` manually.
-
-### DEVELOPER_MODE_ENABLED = True in test settings
-- **Repo**: ansible/metrics-service
-- Replaced in 7db9971 (#87) by per-test `@override_settings(MODE="development")`. Then fully eliminated in be9e010 (#253) when the tasks API switched to `IsSystemAdminOrAuditor` RBAC -- tests no longer need any mode override for task endpoint access.
-
 ### URL tests: remove exception suppression and separate test URL config
 - **Repo**: ansible/metrics-service
 - **Commits**: 2347367 (#263)
@@ -476,13 +454,6 @@
 - **Commits**: 2347367 (#263)
 - **What happened**: The test settings file (`apps/settings/test.py`) replaced the entire `REST_FRAMEWORK` dict, which dropped `DEFAULT_RENDERER_CLASSES` (ServiceBrowsableAPIRenderer) set by `defaults.py` and `core/settings.py`. Without the custom renderer, breadcrumb URLs in the browsable API lost their service prefix, failing `test_breadcrumbs[api-service-prefix]` in CI. This only appeared in CI because CI sets `METRICS_SERVICE_MODE=test` as a real env var before process start, so `test.py` loads. Locally, pytest-django imports `metrics_service/settings.py` (triggering Dynaconf) before conftest.py's `setdefault` runs, so tests silently ran in development mode. The fix: `REST_FRAMEWORK__DEFAULT_AUTHENTICATION_CLASSES = [...]` etc., overriding only the three keys that differ.
 - **Insight**: When using Dynaconf environment-specific settings files, replacing an entire dict clobbers keys set by earlier layers. Use the `__` (double-underscore) nested-key syntax to override individual keys within a dict. This is especially important for `REST_FRAMEWORK` which accumulates settings from multiple sources.
-
-### Test fixture time offsets must survive midnight UTC boundary
-- **Repo**: ansible/metrics-service
-- **Commits**: a039ec3 (#282)
-- **What happened**: The `job_data` fixture in `test_export_urls.py` used minute-scale offsets (`timedelta(minutes=5)`, `timedelta(minutes=1)`) for recent jobs. CI runs between 00:01-00:05 UTC would split these jobs across two calendar days, producing 3 date buckets instead of the expected 2. Fix: use hour-scale offsets (`timedelta(hours=3)`, `timedelta(hours=2)`) so both jobs always land on the same calendar day regardless of when CI runs.
-- **Insight**: Test fixtures using time offsets from "now" must account for day boundaries. Minute-scale offsets near midnight create flakes -- use hour-scale offsets to ensure all related data points land on the same calendar day.
-- **Superseded** by ecaf7aa (#478): hour-scale offsets only moved the flake to 01:00-02:59 UTC. The fixtures are now anchored at UTC midnight, and the old failure hours are pinned as parametrized cases. See "Dashboard report fixtures anchored at UTC midnight" in the main section.
 
 ### Management command test swallowed exceptions, hiding NULL description bug
 - **Repo**: ansible/metrics-service
@@ -507,6 +478,35 @@
 - **Commits**: e4ba452 (#350)
 - **What happened**: After metrics-utility renamed `collection_name` to `collection` in the indirect nodes rollup (m-u PRs #484/#485) to work around Segment silently filtering properties containing the substring "name", a test mock in `test_collect_daily_indirect_nodes.py` still used the old `collection_name` key. PR #350 updated the mock to use `collection` to match the upstream data shape.
 - **Insight**: Cross-repo field renames require updating both the producer (metrics-utility rollup) and the consumer (metrics-service mocks/tests). When a field rename is driven by an external constraint (Segment's "name" filtering), search both repos for the old field name to catch stale references in test fixtures.
+
+## Superseded / Semi-Obsolete
+
+### Tests in tests/unit/ alongside tests/test_*.py
+- **Repo**: ansible/metrics-service
+- The early test structure had both `tests/unit/` subdirectory tests and top-level `tests/test_*.py` files. In edb4626 (#25), tests were reorganized into `tests/unit/{api,core,dashboard,general,tasks}/` subdirectories.
+
+### SQLite in-memory test database
+- **Repo**: ansible/metrics-service
+- The `"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"` test config and the `DisableMigrations` class were removed in c8e5f0d (#36). Tests now use PostgreSQL with `--reuse-db`.
+
+### _create_task_safely pattern to suppress signals
+- **Repo**: ansible/metrics-service
+- The `_skip_signals` workaround from a044bd7 (#54) is no longer needed after signals were removed in 85d2cbb (#57). Tests now use plain `Task.objects.create()`.
+
+### Manual setup_django_for_tests() in test files
+- **Repo**: ansible/metrics-service
+- Removed in 78fdf9f (#61). The conftest.py and pytest-django handle Django setup; no test file should call `django.setup()` manually.
+
+### DEVELOPER_MODE_ENABLED = True in test settings
+- **Repo**: ansible/metrics-service
+- Replaced in 7db9971 (#87) by per-test `@override_settings(MODE="development")`. Then fully eliminated in be9e010 (#253) when the tasks API switched to `IsSystemAdminOrAuditor` RBAC -- tests no longer need any mode override for task endpoint access.
+
+### Test fixture time offsets must survive midnight UTC boundary
+- **Repo**: ansible/metrics-service
+- **Commits**: a039ec3 (#282)
+- **What happened**: The `job_data` fixture in `test_export_urls.py` used minute-scale offsets (`timedelta(minutes=5)`, `timedelta(minutes=1)`) for recent jobs. CI runs between 00:01-00:05 UTC would split these jobs across two calendar days, producing 3 date buckets instead of the expected 2. Fix: use hour-scale offsets (`timedelta(hours=3)`, `timedelta(hours=2)`) so both jobs always land on the same calendar day regardless of when CI runs.
+- **Insight**: Test fixtures using time offsets from "now" must account for day boundaries. Minute-scale offsets near midnight create flakes -- use hour-scale offsets to ensure all related data points land on the same calendar day.
+- **Superseded** by ecaf7aa (#478): hour-scale offsets only moved the flake to 01:00-02:59 UTC. The fixtures are now anchored at UTC midnight, and the old failure hours are pinned as parametrized cases. See "Dashboard report fixtures anchored at UTC midnight" in the main section.
 
 ### DB-backed collector test mutates the shared compose fixture in place, and restores it in `finally`
 - **Repo**: ansible/metrics-utility
