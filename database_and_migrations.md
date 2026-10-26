@@ -238,6 +238,17 @@
 - **What happened**: No migration, no DDL. Python-only change in `UnifiedJob._update_parent_instance()` (`unified_jobs.py`, plus the `ProjectUpdate` override in `projects.py` passing the flag through). For jobs whose template has `allow_simultaneous=True`, the `connection.on_commit` callback that propagates a job's status change to its parent template now does `select_for_update(skip_locked=True).filter(pk=...).first()` inside `transaction.atomic()`. If another session already holds the template row lock, the update is **silently skipped** (debug log only) instead of queuing. Motivation: a customer incident with 635+ sessions queued on one JT row, single-row UPDATEs taking 11-25 minutes. Non-`allow_simultaneous` jobs keep the synchronous, blocking path. The fields written are `current_job`, `status`, `last_job`, `last_job_failed` on the template (`main_unifiedjobtemplate`). Also, `save()` is now skipped when there are no changed fields.
 - **Insight**: Affects **main_unifiedjobtemplate** (and, by inheritance, `main_jobtemplate` rows behind it): the PR says the fields are "latest wins", but the session that gets the lock writes *its own* job's state, not the newest one. So when jobs on the same `allow_simultaneous` template finish concurrently, `last_job_id`, `last_job_failed`, `status` and `current_job_id` can point at an older job until the template's next status change. Collectors should get "latest job per template" from `main_unifiedjob` (max `id`/`finished` by `unified_job_template_id`) rather than trusting `main_unifiedjobtemplate.last_job_id`/`status`. (Before this change the on_commit path was already unordered, but nothing got dropped.)
 
+### SELECT 1 probe for dead connection detection before ensure_connection()
+- **Repo**: ansible/metrics-service
+- **Commits**: 33db88a (#273)
+- See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#stale-psycopg3-connections-not-detected-by-djangos-ensure_connection) for the full entry. Summary: `get_db_connection()` returned stale psycopg3 connections after server-side disconnects. A `SELECT 1` probe was added before `ensure_connection()` to detect and close dead connections. `close_old_connections()` was not viable because it closes ALL connections including ones holding advisory locks.
+
+### Stale advisory lock cleanup via pg_terminate_backend
+- **Repo**: ansible/metrics-service
+- **Commits**: a6bb3ad (#277)
+- **What happened**: After a network partition, PostgreSQL sessions can remain alive for hours (TCP keepalive default is 7200s), holding advisory locks that block task execution. The scheduler's `_periodic_database_sync` now runs `_cleanup_stale_advisory_locks()` every 30s. It joins `pg_locks` with `pg_stat_activity` to find sessions that are idle beyond `STUCK_TASK_TIMEOUT_SECONDS` and hold advisory locks matching known `TASK_LOCKS` names (computed via `hashtext(name)::bigint % 2**63`). Matching sessions are terminated with `pg_terminate_backend()`. The cleanup is scoped to known lock names to avoid terminating sessions from other applications.
+- **Insight**: Advisory locks are tied to PostgreSQL sessions, not transactions. When a worker process dies but its session persists (due to TCP keepalive), the lock blocks all subsequent task attempts. The only way to release it is to terminate the stale session. Always scope cleanup to known lock IDs to avoid collateral damage.
+
 ## Superseded / Semi-Obsolete
 
 ### The pl/pgsql helper duplication: AWX's copy is the good one, ours are two stale ones  [RESOLVED]
@@ -259,14 +270,3 @@
 ### AWX member_organization RBAC role-definition change (64dc097914 / #16545)
 - **Repo**: ansible/awx
 - Reverted by 85891b8d30 (#16597). The post-migrate-signal approach for adding `member_organization` to Organization *Admin role definitions (and the `ANSIBLE_BASE_ALLOW_TEAM_ORG_MEMBER` setting) was backed out. Full entry retained above under "RBAC role definitions updated via post-migrate signal" with the SUPERSEDED marker. No schema impact either way -- DAB RBAC tables only, none in our dependent tables.
-
-### SELECT 1 probe for dead connection detection before ensure_connection()
-- **Repo**: ansible/metrics-service
-- **Commits**: 33db88a (#273)
-- See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#stale-psycopg3-connections-not-detected-by-djangos-ensure_connection) for the full entry. Summary: `get_db_connection()` returned stale psycopg3 connections after server-side disconnects. A `SELECT 1` probe was added before `ensure_connection()` to detect and close dead connections. `close_old_connections()` was not viable because it closes ALL connections including ones holding advisory locks.
-
-### Stale advisory lock cleanup via pg_terminate_backend
-- **Repo**: ansible/metrics-service
-- **Commits**: a6bb3ad (#277)
-- **What happened**: After a network partition, PostgreSQL sessions can remain alive for hours (TCP keepalive default is 7200s), holding advisory locks that block task execution. The scheduler's `_periodic_database_sync` now runs `_cleanup_stale_advisory_locks()` every 30s. It joins `pg_locks` with `pg_stat_activity` to find sessions that are idle beyond `STUCK_TASK_TIMEOUT_SECONDS` and hold advisory locks matching known `TASK_LOCKS` names (computed via `hashtext(name)::bigint % 2**63`). Matching sessions are terminated with `pg_terminate_backend()`. The cleanup is scoped to known lock names to avoid terminating sessions from other applications.
-- **Insight**: Advisory locks are tied to PostgreSQL sessions, not transactions. When a worker process dies but its session persists (due to TCP keepalive), the lock blocks all subsequent task attempts. The only way to release it is to terminate the stale session. Always scope cleanup to known lock IDs to avoid collateral damage.

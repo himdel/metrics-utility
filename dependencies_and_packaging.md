@@ -347,6 +347,22 @@
 - **What happened**: AAP-96443 / AAP-96530 (CVE-2026-97687, CVE-2026-97689). `pyproject.toml` moved `urllib3~=2.7` to `urllib3~=2.8` with the matching `uv.lock` refresh; no code changes. urllib3 is mostly transitive (botocore, requests and others), but is pinned directly so the product build picks up the fixed release.
 - **Insight**: Security-driven transitive bumps are done by tightening the compatible-release floor in metrics-service's own `pyproject.toml`, since that file is the compile source for the whole product container (see "Runtime dependency pins loosened to compatible-release ranges (metrics-service side)" above).
 
+### Dependabot uv ecosystem for Python dependency updates
+- **Repo**: ansible/metrics-service
+- See [ci_cd.md](ci_cd.md#uv-ecosystem-added-to-dependabot-config) for the canonical entry.
+
+### pytz removed: stdlib datetime.UTC replaces pytz.UTC/pytz.utc
+- **Repo**: ansible/metrics-service
+- **Commits**: e02d7c8 (#297), 250055f (#298)
+- **What happened**: All remaining `pytz` usage in test files was replaced with `datetime.UTC` (stdlib, Python 3.11+). `pytz` was never a declared dependency -- it was available only transitively via `pandas 2.x`. With `pandas 3.0` (which dropped pytz), the lock file updated from `pandas 2.3.3` to `pandas 3.0.3`, and `pytz` was no longer available. Three test files across `dashboard_reports/` were updated: `test_tasks.py`, `test_models.py`, `test_report_view_data.py`.
+- **Insight**: When upgrading to `pandas 3.0`, audit all test files for `import pytz` -- the migration path is `pytz.UTC` -> `datetime.UTC` and `pytz.utc` -> `datetime.UTC`. The `datetime.UTC` constant is available since Python 3.11.
+
+### Ruff bumped from >=0.9.2 to >=0.16.0, pre-commit hook aligned
+- **Repo**: ansible/metrics-utility
+- **Commits**: fe82be1 (#506)
+- **What happened**: The ruff dev dependency was bumped from `>=0.9.2` to `>=0.16.0` in `pyproject.toml`, and the pre-commit hook was updated from `v0.15.4` to `v0.16.0`. The CI workflow was changed from `uvx ruff check` (which fetches the latest ruff from PyPI, potentially differing from local) to `uv run ruff check` (uses the version locked in `uv.lock`). This ensures developers and CI use the same ruff version.
+- **Insight**: Use `uv run ruff` (locked version) instead of `uvx ruff` (latest from PyPI) in CI to prevent version skew between local development and CI. When ruff adds new default rules across versions, `uvx ruff` in CI could fail on code that passes locally with an older locked version.
+
 ## Superseded / Semi-Obsolete
 
 ### `segment-analytics-python` as a runtime dependency
@@ -429,26 +445,9 @@
 - **Repo**: ansible/metrics-service
 - Bumped in 26614c4 (#113) for anonymization fixes (StorageSegment `segment_meta` parameter). See the consolidated version bumps entry in the main section.
 
-### Dependabot uv ecosystem for Python dependency updates
-- **Repo**: ansible/metrics-service
-- **Commits**: 76f179e (#284)
-- **What happened**: Added `package-ecosystem: 'uv'` entry to `.github/dependabot.yml` to enable automated Python dependency updates for `pyproject.toml` / `uv.lock`. The first batch of dependabot PRs (#288-#294) bumped: ruff 0.12.10->0.15.18, pytest-asyncio 1.1.0->1.4.0, isort 6.0.1->8.0.1, django-prometheus 2.4.1->2.5.0, croniter 6.0.0->6.2.2, SonarSource/sonarqube-scan-action 8.1.0->8.2.0, codecov/codecov-action 6.0.1->7.0.0.
-- **Insight**: Dependabot's `uv` ecosystem support enables automated dependency updates for projects using uv's `pyproject.toml` + `uv.lock` workflow, complementing the `github-actions` ecosystem for CI actions. Monthly schedule keeps update frequency manageable.
-
-### pytz removed: stdlib datetime.UTC replaces pytz.UTC/pytz.utc
-- **Repo**: ansible/metrics-service
-- **Commits**: e02d7c8 (#297), 250055f (#298)
-- **What happened**: All remaining `pytz` usage in test files was replaced with `datetime.UTC` (stdlib, Python 3.11+). `pytz` was never a declared dependency -- it was available only transitively via `pandas 2.x`. With `pandas 3.0` (which dropped pytz), the lock file updated from `pandas 2.3.3` to `pandas 3.0.3`, and `pytz` was no longer available. Three test files across `dashboard_reports/` were updated: `test_tasks.py`, `test_models.py`, `test_report_view_data.py`.
-- **Insight**: When upgrading to `pandas 3.0`, audit all test files for `import pytz` -- the migration path is `pytz.UTC` -> `datetime.UTC` and `pytz.utc` -> `datetime.UTC`. The `datetime.UTC` constant is available since Python 3.11.
-
 ### PyJWT pinned to exact version for security (AAP-78015)
 - **Repo**: ansible/metrics-service
 - **Commits**: 56fb4e5 (#336)
 - **What happened**: `pyjwt==2.13.0` was added as an explicit exact-version pin in `pyproject.toml` (previously it was a transitive dependency via DAB). This is a security-motivated bump from 2.10.1 to 2.13.0 under AAP-78015. Unlike most dependencies which use range specifiers (`>=`), this uses an exact pin (`==`) reflecting the security requirement to control the exact JWT library version.
 - **Insight**: Security-sensitive authentication libraries (JWT, crypto) should be pinned to exact versions rather than ranges, even when they arrive transitively, to ensure the specific patched version is always used and prevent accidental downgrades.
-
-### Ruff bumped from >=0.9.2 to >=0.16.0, pre-commit hook aligned
-- **Repo**: ansible/metrics-utility
-- **Commits**: fe82be1 (#506)
-- **What happened**: The ruff dev dependency was bumped from `>=0.9.2` to `>=0.16.0` in `pyproject.toml`, and the pre-commit hook was updated from `v0.15.4` to `v0.16.0`. The CI workflow was changed from `uvx ruff check` (which fetches the latest ruff from PyPI, potentially differing from local) to `uv run ruff check` (uses the version locked in `uv.lock`). This ensures developers and CI use the same ruff version.
-- **Insight**: Use `uv run ruff` (locked version) instead of `uvx ruff` (latest from PyPI) in CI to prevent version skew between local development and CI. When ruff adds new default rules across versions, `uvx ruff` in CI could fail on code that passes locally with an older locked version.
+- **Superseded** by 9801c81 (#406), which loosened runtime pins to compatible-release ranges; now `pyjwt~=2.15` (see "PyJWT floor raised to ~=2.15 for a CVE" above).

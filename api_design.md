@@ -176,40 +176,6 @@
 - **What happened**: `payload_schemas.py` mirrors metrics-utility collector SQL but nothing generates it or checks it against metrics-utility. Two metrics-utility changes merged right after #455 and broke it: ansible/metrics-utility#617 added `first_automation` to the shared `_main_host_query()` (v1.1), so `MainHostPayload` (used by both `main_host` and `main_host_daily`) was missing a field, and ansible/metrics-utility#611 reverted #606, so `events_table` and `main_jobevent_service` no longer return the `collection_name` / `collection_version` the event schemas still advertised. The fix adds `first_automation` (`datetime`) to `MAIN_HOST` and removes the two event fields from the `_EVENT` catalog and both picks. `test_payload_schemas_follow_collector_variants` now asserts the event fields are *absent* (it used to require them) and that `first_automation` is a datetime on both host collectors. `deprecation.collection_name`, nested under the event deprecation object, is a different field and stays. After the resync the schemas match metrics-utility devel. metrics-service itself still locks metrics-utility 0.8.20260927 from PyPI (`>=0.8.0` in pyproject), which predates all three changes, so in the locked build `first_automation` is declared but not yet returned.
 - **Insight**: A hand-maintained mirror of another repo's output needs a sync trigger. Here the only safeguard is a docs line and a reviewer remembering it, so each metrics-utility column change should come with a metrics-service schema PR. And because the schemas track metrics-utility devel rather than the locked release, "declared" and "returned" can differ until the lock is bumped.
 
-## Superseded / Semi-Obsolete
-
-### DRF Spectacular @extend_schema decorators on API views
-- **Repo**: ansible/metrics-service
-- DRF Spectacular was removed in 5fb6ead (#73) but re-added in 6ee2d93 (#196) with comprehensive OpenAPI documentation for all endpoints.
-
-### Monolithic apps/api/ as single API app
-- The initial structure had a single `apps/api/` app with all endpoints. This was later reorganized so each domain app (`apps/tasks/`, `apps/core/`, `apps/dynamic_settings/`) owns its own `v1/` API subdirectory.
-
-### ConfigView for runtime configuration
-- The `ConfigView` from 8b4aa31 (#26) was replaced by `SettingView` in f4b136e (#31) with DB-backed change tracking, input validation, and rollback capability.
-
-### AllowAny permission on TaskViewSet
-- The temporary `AllowAny` permission was replaced by `DeveloperModeRequired` in dbf6fb1 (#65), gating task API access behind the `DEVELOPER_MODE_ENABLED` setting. Then `DeveloperModeRequired` was itself replaced by `IsSystemAdminOrAuditor` in be9e010 (#253), making the tasks API accessible to system admins/auditors in any mode.
-
-### DeveloperModeRequired permission class
-- **Repo**: ansible/metrics-service
-- The `DeveloperModeRequired` permission class (checking `settings.MODE == "development"`) was deleted in be9e010 (#253). The tasks API now uses DAB's `IsSystemAdminOrAuditor` RBAC permission instead. See also: `DEVELOPER_MODE_ENABLED` superseded entry in settings_and_configuration.md.
-
-### Custom BaseModelSerializer with auto read-only fields and CountFieldMixin
-- Replaced in 5fb6ead (#73) by DAB's `NamedCommonModelSerializer` and `CommonUserSerializer` for core models. The tasks app retained a simpler custom `BaseModelSerializer`.
-
-### Manual nested URL configuration for related resources
-- Replaced in 5fb6ead (#73) by DAB's `AssociationResourceRouter` which auto-generates related resource endpoints via `related_views` parameter.
-
-### DRF Spectacular @extend_schema decorators on API views
-- DRF Spectacular was removed in 5fb6ead (#73). The `@extend_schema` decorators on task views were retained (they're no-ops without drf-spectacular installed) pending migration to `ansible_base.api_documentation`.
-
-### SettingSerializer with HyperlinkedModelSerializer and url field
-- Changed to plain `ModelSerializer` in d180ae8 (#74) because the dynamic_settings API uses a singleton pattern without detail endpoints, making the `url` field (which referenced non-existent `api:v1:settings-detail`) unnecessary and broken.
-
-### Settings API (SettingViewSet) at /api/v1/settings/
-- The entire settings API surface (SettingViewSet, SettingSerializer, v1 URLs) was removed in 2be6a60 (#185) for security. Settings are now managed via management commands and environment variables only. The Setting model and utils remain for internal use.
-
 ### Custom date range filter for dashboard reports
 - **Repo**: ansible/metrics-service
 - **Commits**: 56d0119 (#272)
@@ -251,3 +217,37 @@
 - **Commits**: 412bfe6 (#361)
 - **What happened**: Organizations are managed by the AAP resource server and synced into metrics-service (`is_provider=False` in `resource_api.py`). POSTing to `/api/v1/organizations/` triggered DAB's `sync_to_resource_server_post_save` signal, which crashed because the local service is not the provider and the signal is not designed for consumer-side creation. Fix: `OrganizationViewSet.http_method_names` excludes `"post"`, returning 405 Method Not Allowed before the signal path is reached. Tests verify: superusers get 405 on POST (method guard fires after auth), non-superusers get 403 (RBAC fires before the method guard).
 - **Insight**: When a model is synced from an upstream resource server (`is_provider=False`), block creation at the HTTP method level (`http_method_names`) rather than in serializer validation or a custom permission class. The method guard fires early in the DRF dispatch chain and returns a clear 405, preventing the request from reaching model.save() and its problematic signals. Document the constraint in the viewset docstring with a reference to the resource_api.py provider flag.
+
+## Superseded / Semi-Obsolete
+
+### DRF Spectacular @extend_schema decorators on API views
+- **Repo**: ansible/metrics-service
+- DRF Spectacular was removed in 5fb6ead (#73) but re-added in 6ee2d93 (#196) with comprehensive OpenAPI documentation for all endpoints.
+
+### Monolithic apps/api/ as single API app
+- The initial structure had a single `apps/api/` app with all endpoints. This was later reorganized so each domain app (`apps/tasks/`, `apps/core/`, `apps/dynamic_settings/`) owns its own `v1/` API subdirectory.
+
+### ConfigView for runtime configuration
+- The `ConfigView` from 8b4aa31 (#26) was replaced by `SettingView` in f4b136e (#31) with DB-backed change tracking, input validation, and rollback capability.
+
+### AllowAny permission on TaskViewSet
+- The temporary `AllowAny` permission was replaced by `DeveloperModeRequired` in dbf6fb1 (#65), gating task API access behind the `DEVELOPER_MODE_ENABLED` setting. Then `DeveloperModeRequired` was itself replaced by `IsSystemAdminOrAuditor` in be9e010 (#253), making the tasks API accessible to system admins/auditors in any mode.
+
+### DeveloperModeRequired permission class
+- **Repo**: ansible/metrics-service
+- The `DeveloperModeRequired` permission class (checking `settings.MODE == "development"`) was deleted in be9e010 (#253). The tasks API now uses DAB's `IsSystemAdminOrAuditor` RBAC permission instead. See also: `DEVELOPER_MODE_ENABLED` superseded entry in settings_and_configuration.md.
+
+### Custom BaseModelSerializer with auto read-only fields and CountFieldMixin
+- Replaced in 5fb6ead (#73) by DAB's `NamedCommonModelSerializer` and `CommonUserSerializer` for core models. The tasks app retained a simpler custom `BaseModelSerializer`.
+
+### Manual nested URL configuration for related resources
+- Replaced in 5fb6ead (#73) by DAB's `AssociationResourceRouter` which auto-generates related resource endpoints via `related_views` parameter.
+
+### DRF Spectacular @extend_schema decorators on API views
+- DRF Spectacular was removed in 5fb6ead (#73). The `@extend_schema` decorators on task views were retained (they're no-ops without drf-spectacular installed) pending migration to `ansible_base.api_documentation`.
+
+### SettingSerializer with HyperlinkedModelSerializer and url field
+- Changed to plain `ModelSerializer` in d180ae8 (#74) because the dynamic_settings API uses a singleton pattern without detail endpoints, making the `url` field (which referenced non-existent `api:v1:settings-detail`) unnecessary and broken.
+
+### Settings API (SettingViewSet) at /api/v1/settings/
+- The entire settings API surface (SettingViewSet, SettingSerializer, v1 URLs) was removed in 2be6a60 (#185) for security. Settings are now managed via management commands and environment variables only. The Setting model and utils remain for internal use.

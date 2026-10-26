@@ -226,6 +226,12 @@
 - **What happened**: `docker compose down -v --rmi local` only acts on services in the default (unprofiled) set, so containers, volumes and locally built images from the `pytest`, `env`, `service` and `pytest-svc` profiles were left behind, and some only disappeared on a second `make clean`. The target now runs `compose ... --profile pytest --profile env --profile service --profile pytest-svc down -v --remove-orphans --rmi local`.
 - **Insight**: Compose profiles scope `down` as well as `up` -- a cleanup target has to enable every profile explicitly (and `--remove-orphans` catches the leftovers) to be a real one-pass reset.
 
+### Standalone docker-compose removed, unified compose adopted
+- **Repo**: ansible/metrics-service
+- **Commits**: ff6e9fb (#266)
+- **What happened**: The standalone `docker-compose.yml` in metrics-service (which never had AWX DB support) was removed. All dev workflows now use the unified compose in `../metrics-utility/` via Makefile targets: `make compose-service` (runs the service), `make compose-pytest-svc` (runs service tests). Performance test tools were moved to metrics-utility's `tools/` directory. The `Dockerfile.dev` was cleaned up significantly: added `.venv/bin` to `PATH` (broken since 531b608 introduced the venv but never updated PATH), set `VIRTUAL_ENV`, made `.venv` writable for `uv sync`, and removed unused `supervisord` and `entrypoint-*.sh` COPYs (compose services now use inline `manage.py` commands). A `.coderabbit.yaml` was added to disable the UBI9 "avoid :latest" lint rule. The Makefile gained `help`, `test`, `coverage`, `lint`, `fix` targets.
+- **Insight**: A unified compose file in the library repo (metrics-utility) that supports both library and service development via profiles eliminates the need for each repo to maintain its own compose file. The service repo only needs Makefile targets that delegate to the shared compose. This ensures consistent database setup (roles, schemas) across both repos. **Extends** the unified compose work in metrics-utility #433.
+
 ## Superseded / Semi-Obsolete
 
 ### MinIO used for S3-compatible storage in dev/CI
@@ -291,9 +297,3 @@
 ### Kubernetes manifests in manifests/
 - **Repo**: ansible/metrics-service
 - Removed in d72f17e (#68). The template-origin k8s manifests were never updated for the actual service and contained stale configuration. AAP operator handles real Kubernetes deployment.
-
-### Standalone docker-compose removed, unified compose adopted
-- **Repo**: ansible/metrics-service
-- **Commits**: ff6e9fb (#266)
-- **What happened**: The standalone `docker-compose.yml` in metrics-service (which never had AWX DB support) was removed. All dev workflows now use the unified compose in `../metrics-utility/` via Makefile targets: `make compose-service` (runs the service), `make compose-pytest-svc` (runs service tests). Performance test tools were moved to metrics-utility's `tools/` directory. The `Dockerfile.dev` was cleaned up significantly: added `.venv/bin` to `PATH` (broken since 531b608 introduced the venv but never updated PATH), set `VIRTUAL_ENV`, made `.venv` writable for `uv sync`, and removed unused `supervisord` and `entrypoint-*.sh` COPYs (compose services now use inline `manage.py` commands). A `.coderabbit.yaml` was added to disable the UBI9 "avoid :latest" lint rule. The Makefile gained `help`, `test`, `coverage`, `lint`, `fix` targets.
-- **Insight**: A unified compose file in the library repo (metrics-utility) that supports both library and service development via profiles eliminates the need for each repo to maintain its own compose file. The service repo only needs Makefile targets that delegate to the shared compose. This ensures consistent database setup (roles, schemas) across both repos. **Extends** the unified compose work in metrics-utility #433.

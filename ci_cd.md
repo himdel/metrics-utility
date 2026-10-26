@@ -432,36 +432,6 @@
 - **What happened**: `pr-checks.yml` and `pytest.yml` still declared their Postgres service as the unqualified `postgres:15`, i.e. Docker Hub, and CI runs started failing during service-container initialisation with Docker Hub auth timeouts and unauthenticated pull rate limits. Both switched to `mirror.gcr.io/postgres:15`, matching the repo's Compose files (changed back in #45, see docker_and_deployment.md "PostgreSQL image switched to GCR mirror") and metrics-utility's `tools/docker/docker-compose.yaml`.
 - **Insight**: Moving the Compose files to a mirror doesn't cover GitHub Actions `services:` images, which are a separate pull path -- grep every workflow for bare Docker Hub image names when adopting a mirror.
 
-## Superseded / Semi-Obsolete
-
-### PR target glob `stable-*` for metrics-utility
-- **Repo**: ansible/metrics-utility
-- **Commits**: ba7ad32 (#458)
-- The original check accepted any `stable-*` base branch, reasoning that m-u's branch naming differed from metrics-service's `stable-2.*`. Narrowed to `stable-2.*` in af2d1ac (#594), so the repos now use the same glob.
-
-### CI SQL schema requires pre-created functions (`functions.sql`)
-- **Repo**: ansible/metrics-utility
-- **Commits**: 7d148b9 (#300)
-- `tools/docker/functions.sql` was added to pre-create `metrics_utility_is_valid_json` / `metrics_utility_parse_yaml_field` for the no-write-access CI DB after a fresh `latest.sql` dump lacked them. Deleted in 1ae5840 (#577): AWX now creates these functions in its own migration (awx#16458), so any post-migration dump already contains them and the extra file only caused "already exists" errors. The general lesson (runtime-created objects must be in schema init for read-only CI) still holds.
-
-### pytest workflow was disabled in this batch (m-s)
-- **Repo**: ansible/metrics-service
-- Moved to `future-workflow/` directory in commit 5b12d74, then restored in cb58dc0 (#11). It is now actively running in `.github/workflows/pytest.yml`.
-
-### SonarCloud integration in pytest workflow (m-s)
-- **Repo**: ansible/metrics-service
-- SonarCloud reporting was removed from the pytest workflow in 8481170 (#17), then partially re-added in c4add8a (#134) for push events only. The full PR-based scan now lives in `sonar_checks.yml` via `workflow_run`.
-
-### SonarCloud PR validation via commits/{sha}/pulls API (m-s)
-- **Repo**: ansible/metrics-service
-- The `commits/{sha}/pulls` approach from 8ba3c14 (#101) was replaced in c4add8a (#134) with direct branch/SHA/repo matching. The old API was unreliable due to GitHub's eventual consistency -- recently pushed commits sometimes returned empty PR lists, causing false validation failures.
-
-### Renovate cron wildcard-minute prevention PR check (reverted)
-- **Repo**: ansible/metrics-service
-- **Commits**: 7e78597 (#281), reverted by 425138c (#341)
-- **What happened**: The Renovate config's Tekton schedule had `"* */12 * * 1-5"` -- wildcard minute was treated as "every minute during matching hours" by standard cron rules. PR #281 fixed to `"0 */12 * * 1-5"` and added a PR check to prevent wildcard minutes. However, Renovate's cron format is non-standard: it requires `*` for the minutes field and doesn't support minute granularity. The specific-minute fix broke the config entirely, causing Renovate to reject the schedule. PR #341 reverted the schedule to `"* */12 * * 1-5"` and flipped the PR check to enforce wildcard minutes instead (the opposite direction). **Lesson**: Renovate cron != system cron; always check the tool's own cron documentation.
-- **Insight**: The PR check itself survived the revert (now enforcing the correct constraint), but the original insight was wrong -- Renovate intentionally requires wildcard minutes.
-
 ### Tekton pipeline bundle digest update and Renovate config fix
 - **Repo**: ansible/metrics-service
 - **Commits**: 8f78a44 (#271)
@@ -537,3 +507,33 @@
 - **Also**: ansible/metrics-service — cb101c6 (#416), an essentially identical `.github/workflows/repo-sync.yaml` mirroring `devel` to `ansible-automation-platform/metrics-service`. Same org-standard template, same org secret/variable, same generic `TARGET_REPO: ${{ github.event.repository.name }}` parameterization (so the file is repo-agnostic), same hardening.
 - **What happened**: A new `.github/workflows/repo-sync.yaml` mirrors `devel` from `ansible/metrics-utility` to `ansible-automation-platform/metrics-utility` on every push to `devel`, supplementing (not replacing) the existing hourly scheduled sync in `ansible-automation-platform/cicd-ops` so merges mirror downstream immediately. It follows the org-standard caller template from `ansible/ansible-cicd`'s `i-want-it-now.yaml`: it mints a scoped GitHub App token via `actions/create-github-app-token@v2` (using org secret `ANSIBLE_CICD_BOT_ORG_RW_TOKEN_PRIVATE_KEY` and org var `ANSIBLE_CICD_BOT_ORG_RW_TOKEN_APP_ID`, restricted to the target org/repo), derives the bot's git identity from the app slug + user id, then clones the source single-branch with the run's `github.token` and pushes `HEAD:devel` downstream with the app token. Hardened with `permissions: contents: read`, a `concurrency` group per ref with `cancel-in-progress`, a 10-minute timeout, and an `always()` cleanup step.
 - **Insight**: A push-triggered mirror gives immediate downstream propagation on top of a slower scheduled fallback; using a scoped GitHub App token (minted per-run, restricted to the single target repo) rather than a broad PAT is the org-standard way to grant cross-org write, and separating the read (source clone with `github.token`) from the write (downstream push with the app token) keeps each credential minimally scoped. Because the workflow parameterizes the target off `github.event.repository.name`, the same file drops into both metrics-utility and metrics-service unchanged.
+
+## Superseded / Semi-Obsolete
+
+### PR target glob `stable-*` for metrics-utility
+- **Repo**: ansible/metrics-utility
+- **Commits**: ba7ad32 (#458)
+- The original check accepted any `stable-*` base branch, reasoning that m-u's branch naming differed from metrics-service's `stable-2.*`. Narrowed to `stable-2.*` in af2d1ac (#594), so the repos now use the same glob.
+
+### CI SQL schema requires pre-created functions (`functions.sql`)
+- **Repo**: ansible/metrics-utility
+- **Commits**: 7d148b9 (#300)
+- `tools/docker/functions.sql` was added to pre-create `metrics_utility_is_valid_json` / `metrics_utility_parse_yaml_field` for the no-write-access CI DB after a fresh `latest.sql` dump lacked them. Deleted in 1ae5840 (#577): AWX now creates these functions in its own migration (awx#16458), so any post-migration dump already contains them and the extra file only caused "already exists" errors. The general lesson (runtime-created objects must be in schema init for read-only CI) still holds.
+
+### pytest workflow was disabled in this batch (m-s)
+- **Repo**: ansible/metrics-service
+- Moved to `future-workflow/` directory in commit 5b12d74, then restored in cb58dc0 (#11). It is now actively running in `.github/workflows/pytest.yml`.
+
+### SonarCloud integration in pytest workflow (m-s)
+- **Repo**: ansible/metrics-service
+- SonarCloud reporting was removed from the pytest workflow in 8481170 (#17), then partially re-added in c4add8a (#134) for push events only. The full PR-based scan now lives in `sonar_checks.yml` via `workflow_run`.
+
+### SonarCloud PR validation via commits/{sha}/pulls API (m-s)
+- **Repo**: ansible/metrics-service
+- The `commits/{sha}/pulls` approach from 8ba3c14 (#101) was replaced in c4add8a (#134) with direct branch/SHA/repo matching. The old API was unreliable due to GitHub's eventual consistency -- recently pushed commits sometimes returned empty PR lists, causing false validation failures.
+
+### Renovate cron wildcard-minute prevention PR check (reverted)
+- **Repo**: ansible/metrics-service
+- **Commits**: 7e78597 (#281), reverted by 425138c (#341)
+- **What happened**: The Renovate config's Tekton schedule had `"* */12 * * 1-5"` -- wildcard minute was treated as "every minute during matching hours" by standard cron rules. PR #281 fixed to `"0 */12 * * 1-5"` and added a PR check to prevent wildcard minutes. However, Renovate's cron format is non-standard: it requires `*` for the minutes field and doesn't support minute granularity. The specific-minute fix broke the config entirely, causing Renovate to reject the schedule. PR #341 reverted the schedule to `"* */12 * * 1-5"` and flipped the PR check to enforce wildcard minutes instead (the opposite direction). **Lesson**: Renovate cron != system cron; always check the tool's own cron documentation.
+- **Insight**: The PR check itself survived the revert (now enforcing the correct constraint), but the original insight was wrong -- Renovate intentionally requires wildcard minutes.

@@ -678,31 +678,6 @@
 - **What happened**: Writing typed payload schemas (api_design.md) showed that the stored JSON didn't match them in two ways, both from `DataFrame.to_json(orient="records", date_format="iso")` in `apps/core/json_utils.to_jsonable()` (#461). (1) pandas stores an integer column that contains any NULL as float64, so whenever a collection window had a NULL in an id or count column, every value in it was stored as `31.0`. `_restore_integer_columns()` casts float columns to nullable `Int64` when all non-null values are whole numbers below 2**53 (the largest integer float64 holds exactly), leaving real floats alone. (2) `date_format="iso"` gives every date a time, so a PostgreSQL `date` column (only `host_metric_summary_monthly_table` has one; it is the only DateField in AWX) came out as `"2026-10-01T00:00:00.000"` instead of the `format: date` the schema declares. `_format_date_columns()` maps object columns whose non-null values are all `date` and not `datetime` (psycopg returns `date` for `date` columns, `datetime` for timestamps) to `date.isoformat`. This also makes the DataFrame path agree with the dict path, where `DjangoJSONEncoder` already renders a bare date as `"2026-10-02"`.
 - **Insight**: `to_json` loses types: integers with NULLs become floats and dates become timestamps. Restore them before serializing, and use a typed schema to find such cases, since nothing else fails on them.
 
-## Superseded / Semi-Obsolete
-
-### Leaderboard org tie-break sorted NULL-named orgs first, contradicting the documented order  [SUPERSEDED by #470]
-- **Repo**: ansible/metrics-service
-- **Commits**: ac7f79e (#435)
-- **What happened**: The organization leaderboard sorted by `(-runs, row["organization_name"] or "", row["organization_id"])`. Coalescing a NULL name to `""` makes unnamed orgs sort *before* every named one on a run-count tie -- the opposite of the "NULL last" behaviour the comment claimed, and enough to change which org is picked as the busiest (and therefore whose streak and achievements are reported). The key became `(-runs, name is None, name or "", id)`. Flagged as an intentional behaviour change in the PR description.
-- **Insight**: `value or ""` is the classic way to accidentally sort NULLs first in a Python sort key; put the `is None` boolean in the tuple ahead of the coalesced value when you want SQL's NULLS LAST semantics -- and when a tie-break decides which entity gets featured, a "cosmetic" ordering fix is a behaviour change worth announcing.
-- **Superseded**: 4fefa6a (#470) removed NULL-named organizations from the leaderboard altogether, so the sort key is back to `(-runs, name, id)` with no NULL handling -- see "Initial dashboard backfill left JobData.organization_name NULL". The `value or ""` sorting pitfall itself still stands.
-
-### Django signals on Task model caused widespread test failures
-- **Repo**: ansible/metrics-service
-- The `_skip_signals` workaround from a044bd7 (#54) is no longer needed. Signals were removed entirely in 85d2cbb (#57) because they don't work across process boundaries.
-
-### dispatcherd config hardcoded database credentials
-- **Repo**: ansible/metrics-service
-- The hardcoded credentials in `config/dispatcherd.yaml` (from the `use_django_db` revert in 3a8f7d5 #48) were replaced in 0e15cbd (#66) with runtime injection from Django settings via `_load_config_with_django_db()`.
-
-### URL prefix env var named inconsistently, fixed in follow-up PR
-- **Repo**: ansible/metrics-service
-- The `METRICS_URL_PREFIX` -> `METRICS_SERVICE_URL_PREFIX` rename from #69/#70 was superseded by #87 which moved URL prefix to a Django setting (`settings.URL_PREFIX`), and then by #91 which added proper prefix interpretation as an actual URL path prefix with slash sanitization.
-
-### Dispatcherd max workers reduced from 4 to 1 as a band-aid
-- **Repo**: ansible/metrics-service
-- Workers 4->1 (#148), then 1->4 (#167) with real fixes. See the main entries above and `task_system.md`.
-
 ### Validator tool SCHEMAS_DIR not updated when schemas moved into package
 - **Repo**: ansible/metrics-utility
 - **Commits**: 14ee699 (#444), 154b633 (#447)
@@ -720,23 +695,6 @@
 - **Commits**: 686dfee (#278)
 - **What happened**: The `metrics_service tasks create` management command had `add_argument("--description", help="...")` without a `default`. When `--description` was omitted, argparse set the value to `None`. The code used `options.get("description", "")` but the fallback never triggered because the key exists (its value is just `None`). This passed `NULL` to the DB's description column. Fix: `add_argument("--description", default="", ...)`.
 - **Insight**: `dict.get(key, default)` only uses the default when the key is absent, not when the value is `None`. For argparse optional arguments that should default to empty string, always set `default=""` explicitly.
-
-### Retry base delay must not be a multiple of task cron spacing
-- **Repo**: ansible/metrics-service
-- **Commits**: 9c6ed6f (#276)
-- See [task_system.md](task_system.md#retry-base-delay-changed-from-10-to-8-minutes-to-avoid-collision-with-5-minute-task-spacing) for the full entry. Summary: `RETRY_BASE_DELAY_SECONDS` changed from 600 (10 min) to 480 (8 min) because 10 minutes is a multiple of the 5-minute task cron spacing, causing retry collisions. Coprime intervals eliminate systematic collisions.
-
-### SEGMENT_MAX_ATTEMPTS mistakenly applied to local-only anonymize task
-- **Repo**: ansible/metrics-service
-- **Commits**: 9c6ed6f (#276)
-- **What happened**: `SEGMENT_MAX_ATTEMPTS` (7) was mistakenly applied to the `daily_anonymize_and_prepare` task group entry in #220. This task only does local DB work (anonymize + create payload); the dynamically created `send_to_segment` task already gets `max_attempts=7` correctly in `daily_anonymize_and_prepare.py:123`. Reverted to the model default (3) by removing the `"max_attempts": SEGMENT_MAX_ATTEMPTS` line.
-- **Insight**: Extended retry attempts should only be applied to tasks that interact with external services (where multi-hour outages are expected). Local DB-only tasks should use the default retry count.
-
-### Renovate cron wildcard minute ran every minute instead of once per interval
-- **Repo**: ansible/metrics-service
-- **Commits**: 7e78597 (#281)
-- **What happened**: The `renovate.json` Tekton schedule was `"* */12 * * 1-5"` -- the `*` in the minute position meant "run every minute for each matching hour", not "run once at each matching hour". This would fire 60 Renovate PRs per 12-hour window. Fixed to `"0 */12 * * 1-5"`. A PR check was also added to `pr-checks.yml` that greps for `"schedule".*"\* ` in `renovate.json` to prevent future wildcard-minute regressions.
-- **Insight**: Cron's `*` in the minute field means "every minute", not "any minute" -- always specify a minute value (typically `0`) when using step expressions like `*/12` for hours. Adding a CI check for this pattern prevents the mistake from recurring.
 
 ### Stale psycopg3 connections not detected by Django's ensure_connection()
 - **Repo**: ansible/metrics-service
@@ -836,21 +794,7 @@
 
 ### Sonar S5779: assert inside bare except hides test failures
 - **Repo**: ansible/metrics-utility
-- **Commits**: c3d6e55 (#486)
-- **What happened**: A test's CSV validation had `assert len(df) > 0` inside a `try/except Exception` block. If the assert failed, the `except` caught `AssertionError` and called `pytest.fail()` with a generic "Failed to read" message, hiding the actual assertion failure. Fixed by narrowing the `except` to `(IOError, UnicodeDecodeError, pandas.errors.ParserError)` -- specific I/O and parsing exceptions that the try block is actually guarding against.
-- **Insight**: Never place `assert` inside a broad `except` block -- `AssertionError` is an `Exception` subclass, so bare `except Exception` catches test assertion failures and masks them behind a different error message. Use specific exception types in test try/except blocks.
-
-### POC pushed direct to devel without PR — reverted
-- **Repo**: ansible/metrics-service
-- **Commits**: 3fe5d45, eccada7, dfe6110 (#349)
-- **What happened**: Two commits adding a full `service_ingest` Django app (external service telemetry ingest pipeline with models, views, authentication, migrations, tasks, and settings) were pushed directly to the `devel` branch without going through a pull request. The second commit (eccada7) was an immediate fix for runtime issues found during local testing (missing `is_anonymous`/`is_active` on ServiceUser, DAB CommonModel.save() FK constraint via crum thread-local). The entire app was reverted two days later in PR #349 because it bypassed the PR review process. The revert carefully preserved the unrelated jira-pr-link workflow fix from #347 that had been interleaved.
-- **Insight**: Never push feature work directly to the default branch, even for POCs. The two commits illustrate the risk: the first commit had runtime bugs (ServiceUser incompatible with DRF, CommonModel FK constraint), and the fix commit also bypassed review. The revert was surgically clean because the code was isolated in its own `apps/service_ingest/` directory -- good app isolation made the rollback straightforward.
-
-### DAB CommonModel.save() reads crum thread-local user for created_by FK
-- **Repo**: ansible/metrics-service
-- **Commits**: eccada7 (reverted in dfe6110 #349)
-- **What happened**: When a DRF view using a non-Django user (ServiceUser for token auth) created a Task via `Task.objects.create()`, DAB's `CommonModel.save()` read the request user from crum's thread-local storage and tried to set `created_by` as a FK to auth.User. Since ServiceUser is not a Django User model, this caused an FK constraint violation. The workaround was `crum.impersonate(None)` to temporarily clear the thread-local. A second fix switched ExternalEvent from CommonModel to plain `models.Model` to avoid the same issue entirely.
-- **Insight**: Any model inheriting from DAB's CommonModel will attempt to set `created_by`/`modified_by` FKs via crum thread-local user. Service-to-service endpoints using non-Django auth users must either wrap model creation in `crum.impersonate(None)` or avoid CommonModel for models that don't need user audit trails.
+- See [testing.md](testing.md#sonar-s5779-assert-inside-tryexcept-exception-masks-test-failures) for the canonical entry.
 
 ### CSV cost rows exported as raw numbers instead of formatted currency strings
 - **Repo**: ansible/metrics-service
@@ -864,24 +808,11 @@
 - **What happened**: A request like `GET /api/v1/activitystream/?operation=%E2%80%99%00%E2%80%99` passed a null byte (`%00`) through to PostgreSQL via DAB's FieldLookupBackend. PostgreSQL rejects null bytes in string queries with a DataError, which is not in DAB's caught exception set (only ValueError/TypeError/ValidationError), resulting in an unhandled 500. A `NullByteQueryParamMiddleware` was added that inspects the raw `QUERY_STRING` for `%00` or literal `\x00` and returns 400 with a JSON error body before any view or filter backend runs. The middleware sits between `ServicePrefixMiddleware` and `APIRootViewMiddleware` to cover all endpoints.
 - **Insight**: Input validation for characters that are illegal at the database level (null bytes for PostgreSQL, certain Unicode for other DBs) should happen in middleware, not in individual views or filter backends. This ensures coverage for all endpoints including third-party ones (DAB views) that the project doesn't control. The middleware inspects the raw QUERY_STRING rather than parsed query params to catch the bytes before URL decoding.
 
-### Swagger UI schema URL missing gateway service prefix
-- **Repo**: ansible/metrics-service
-- **Commits**: d483b0a (#359)
-- **What happened**: When metrics-service runs behind the AAP Gateway (which proxies under `/api/metrics/`), the Swagger UI fetched its OpenAPI schema from `/api/v1/docs/schema/` -- a bare internal path unreachable through the gateway. Django's `reverse()` generates paths without the gateway prefix because the prefix is stripped by `ServicePrefixMiddleware` before Django's URL resolver sees it. Fix: a `MetricsSpectacularSwaggerView` subclass overrides `_get_schema_url()` to prepend `request._api_service_prefix` (set by `ServicePrefixMiddleware`). DAB's `api_documentation` app was excluded from URL registration via `ANSIBLE_BASE_APPS_EXCLUDE_VIEW_LIST` so the custom view takes precedence. A related bug: the `feature_flags` redirect pointed to `/api/v1/feature_flags/states/` instead of `/api/metrics/v1/feature_flags/states/`, also unreachable through the gateway.
-- **Insight**: When a service runs behind a reverse proxy that adds a path prefix, any URL generated by Django's `reverse()` will be missing that prefix. Views that emit URLs to the client (Swagger UI schema URL, redirect Location headers) must explicitly reconstruct the full external path using the prefix stored on the request by the prefix-stripping middleware. DAB-provided views can be excluded from URL registration via `ANSIBLE_BASE_APPS_EXCLUDE_VIEW_LIST` without disabling the app itself.
-- **NOTE**: 2b5d59a (#468) generalised this: the hardcoded `/api/metrics/v1/feature_flags/states/` redirect target is gone (canonical `/api/v1/...` mapped through `ServicePrefixRedirectView` with the request prefix or `URL_PREFIX`), and the Swagger override now uses the shared `replace_api_root` helper with a `URL_PREFIX` fallback -- see settings_and_configuration.md "URL_PREFIX replaces only the `/api` root in every generated URL".
-
 ### CLI indirect nodes collector lost daily_slicing and since/until passthrough
 - **Repo**: ansible/metrics-utility
 - **Commits**: e6640a3 (#508)
 - **What happened**: The CLI collector for `main_indirectmanagednodeaudit` was registered with `fnc_slicing=until_slicing` (full-table snapshot) instead of `fnc_slicing=daily_slicing`, and did not pass `since`/`until` to the underlying `main_indirectmanagednodeaudit()` function. This meant the CLI collector was doing a full-table scan instead of filtering by `main_unifiedjob.finished` within the time window, causing double-counting across daily runs and inconsistent results compared to the service collector (which already used daily_slicing with since/until). The fix restored `fnc_slicing=daily_slicing` on the `@register` decorator and added `since=since, until=until` to the collector function call. An `ORDER BY main_indirectmanagednodeaudit.created ASC` clause was also added to the SQL query for deterministic output ordering. The test was updated to assert that `since` and `until` are passed through.
 - **Insight**: When the same collector has two registration paths (CLI via `@register` decorator in `collectors.py` and service via direct function call), they must use the same slicing strategy and pass the same parameters. The CLI path was left behind when the service path was updated in #475 to use `daily_slicing` with `date_where()` -- always update both call sites when changing a collector's time-window behavior.
-
-### NULL host_id fix for job_host_summary SQL collector reverted -- needed more analysis
-- **Repo**: ansible/metrics-utility
-- **Commits**: 87b61bf (#532), b11fd5a (#533)
-- **What happened**: On SaaS operator deployments, `main_jobhostsummary.host_id` can be NULL. The existing `job_host_summary` collector JOINed to `main_host` using `ON main_host.id = filtered_hosts.host_id`, which silently fails for NULL host_id rows because `NULL = NULL` is false in SQL. This left `ansible_host_variable` as NULL, breaking hostname-based deduplication. PR #532 added `host_name` to the `filtered_hosts` CTE and used a two-branch JOIN: when `host_id IS NOT NULL`, JOIN by ID (unchanged); when `host_id IS NULL`, fall back to JOIN by `host_name`. However, PR #533 reverted this fix two days later. The revert suggests the name-based fallback JOIN may have had unintended consequences (e.g., many-to-many matches when multiple hosts share a name across inventories, or performance regression from the OR-based JOIN condition on large tables).
-- **Insight**: SQL `NULL = NULL` is false, so LEFT JOIN conditions on nullable columns silently produce no match. A name-based fallback JOIN is conceptually correct but risky without careful analysis of uniqueness constraints -- `host_name` is not guaranteed unique across inventories, so the fallback could produce incorrect many-to-many matches. Quick reverts like this (2 days later) indicate the fix needs more analysis of edge cases before re-attempting.
 
 ### Segment header overhead calculated dynamically instead of hardcoded conservative limit
 - **Repo**: ansible/metrics-utility
@@ -889,14 +820,83 @@
 - **What happened**: The `REGULAR_MESSAGE_LIMIT` was restored from the conservative 24KB (set in #281) back to the actual Segment SDK limit of 32KB. Instead of subtracting a fixed safety margin, the `put()` method now dynamically calculates the header overhead by constructing a representative header object containing all non-data fields (envelope: type, messageId, timestamp, integrations, context; properties: artifact_name, upload_timestamp, chunk_info; plus segment_meta fields like message_id, integrations, context) and measuring its serialized JSON size. The available space for data chunks is `REGULAR_MESSAGE_LIMIT - overhead`. For hashed message IDs, a 64-char placeholder is used in the overhead calculation (since the actual hash is not known until send time). A `_build_properties()` helper was extracted to share the properties structure between the overhead calculation and the actual `analytics.track()` call, ensuring they stay in sync. Guards were added to `_split_into_chunks()`: `ValueError` on non-positive `max_size`, warnings on oversized dict values and single list items that exceed `max_size`. Datetime values in segment_meta are converted to ISO format strings before serialization to prevent `TypeError` from `json.dumps()`.
 - **Insight**: When chunking payloads for a size-limited API, calculate the envelope overhead dynamically from the actual header structure rather than using a hardcoded safety margin. A fixed margin (like subtracting 8KB from 32KB) either wastes capacity when the header is small or fails when the header grows (e.g., longer segment_meta fields). Building a representative header object and measuring it ensures the budget adapts to any header changes. **Supersedes** the conservative 24KB limit from #281.
 
-### AWX label dedup via GROUP BY collapsed org-scoped labels -- reverted next day
-- **Repo**: ansible/metrics-service
-- **Commits**: fd7ba37e (#387), d7a776cf (#390), d3ce5e63 (#389)
-- **What happened**: Labels in AWX have `unique_together = (name, organization)`, meaning the same label name can be distinct labels in different organizations. The initial fix (#387) used `SELECT MIN(id) as id, name FROM main_label GROUP BY name` to collapse "duplicates" -- but this was wrong: it treated org-scoped labels as true duplicates and silently dropped all but one. The approach also required a separate `GROUP_BY_CLAUSES` dict to compose SQL in the correct clause order (WHERE must precede GROUP BY). The fix was reverted the next day (#390) and replaced with #389, which joins `main_organization` and disambiguates by appending the org name only to labels whose name occurs more than once (e.g., "production (Org A)", "production (Org B)").
-- **Insight**: When entity names are scoped by a parent (org, team, project), `GROUP BY name` is the wrong dedup strategy -- it destroys legitimate data. The correct approach is disambiguation (show the scope when there is ambiguity), not dedup (collapse to one). The rapid fix-revert-replace cycle (3 PRs in 2 days) shows the value of reverting first and fixing properly rather than patching the broken fix. See [metrics_service.md](metrics_service.md#dashboard-label-disambiguation-by-organization-instead-of-dedup) for the final correct implementation details.
-
 ### Dashboard card counts disagreed with job listing due to template_metadata filter
 - **Repo**: ansible/metrics-service
 - **Commits**: 17a3cd12 (#386)
 - **What happened**: `DashboardReportViewSet.details()` computed total_runs/total_successful_runs/total_failed_runs from `_build_aggregated_queryset()`, which joins and filters by `template_metadata_id IS NOT NULL`. Jobs without template metadata (orphan rows) appeared in the raw job listing but were excluded from the card counts, causing a persistent mismatch. The fix separates card counts (computed on `filtered_qs` with `Count("id", filter=Q(status=...))`) from cost/time annotations (still use the aggregated queryset that needs TemplateMetadata fields).
 - **Insight**: When an aggregation requires a JOIN or filter that excludes rows, counts derived from the same queryset will be undercounted relative to the unfiltered listing. Always compute simple counts (total, successful, failed) on the broadest applicable queryset, even if other aggregations need narrower filters.
+
+## Superseded / Semi-Obsolete
+
+### Leaderboard org tie-break sorted NULL-named orgs first, contradicting the documented order  [SUPERSEDED by #470]
+- **Repo**: ansible/metrics-service
+- **Commits**: ac7f79e (#435)
+- **What happened**: The organization leaderboard sorted by `(-runs, row["organization_name"] or "", row["organization_id"])`. Coalescing a NULL name to `""` makes unnamed orgs sort *before* every named one on a run-count tie -- the opposite of the "NULL last" behaviour the comment claimed, and enough to change which org is picked as the busiest (and therefore whose streak and achievements are reported). The key became `(-runs, name is None, name or "", id)`. Flagged as an intentional behaviour change in the PR description.
+- **Insight**: `value or ""` is the classic way to accidentally sort NULLs first in a Python sort key; put the `is None` boolean in the tuple ahead of the coalesced value when you want SQL's NULLS LAST semantics -- and when a tie-break decides which entity gets featured, a "cosmetic" ordering fix is a behaviour change worth announcing.
+- **Superseded**: 4fefa6a (#470) removed NULL-named organizations from the leaderboard altogether, so the sort key is back to `(-runs, name, id)` with no NULL handling -- see "Initial dashboard backfill left JobData.organization_name NULL". The `value or ""` sorting pitfall itself still stands.
+
+### Django signals on Task model caused widespread test failures
+- **Repo**: ansible/metrics-service
+- The `_skip_signals` workaround from a044bd7 (#54) is no longer needed. Signals were removed entirely in 85d2cbb (#57) because they don't work across process boundaries.
+
+### dispatcherd config hardcoded database credentials
+- **Repo**: ansible/metrics-service
+- The hardcoded credentials in `config/dispatcherd.yaml` (from the `use_django_db` revert in 3a8f7d5 #48) were replaced in 0e15cbd (#66) with runtime injection from Django settings via `_load_config_with_django_db()`.
+
+### URL prefix env var named inconsistently, fixed in follow-up PR
+- **Repo**: ansible/metrics-service
+- The `METRICS_URL_PREFIX` -> `METRICS_SERVICE_URL_PREFIX` rename from #69/#70 was superseded by #87 which moved URL prefix to a Django setting (`settings.URL_PREFIX`), and then by #91 which added proper prefix interpretation as an actual URL path prefix with slash sanitization.
+
+### Dispatcherd max workers reduced from 4 to 1 as a band-aid
+- **Repo**: ansible/metrics-service
+- Workers 4->1 (#148), then 1->4 (#167) with real fixes. See the main entries above and `task_system.md`.
+
+### Retry base delay must not be a multiple of task cron spacing
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- See [task_system.md](task_system.md#retry-base-delay-changed-from-10-to-8-minutes-to-avoid-collision-with-5-minute-task-spacing) for the full entry. Summary: `RETRY_BASE_DELAY_SECONDS` changed from 600 (10 min) to 480 (8 min) because 10 minutes is a multiple of the 5-minute task cron spacing, causing retry collisions. Coprime intervals eliminate systematic collisions.
+
+### SEGMENT_MAX_ATTEMPTS mistakenly applied to local-only anonymize task
+- **Repo**: ansible/metrics-service
+- **Commits**: 9c6ed6f (#276)
+- **What happened**: `SEGMENT_MAX_ATTEMPTS` (7) was mistakenly applied to the `daily_anonymize_and_prepare` task group entry in #220. This task only does local DB work (anonymize + create payload); the dynamically created `send_to_segment` task already gets `max_attempts=7` correctly in `daily_anonymize_and_prepare.py:123`. Reverted to the model default (3) by removing the `"max_attempts": SEGMENT_MAX_ATTEMPTS` line.
+- **Insight**: Extended retry attempts should only be applied to tasks that interact with external services (where multi-hour outages are expected). Local DB-only tasks should use the default retry count.
+- **Reversed**: `max_attempts` was restored on `daily_anonymize_and_prepare` because its failure stalls the Segment pipeline (see "max_attempts restored on daily_anonymize_and_prepare" in task_system.md).
+
+### Renovate cron wildcard minute ran every minute instead of once per interval
+- **Repo**: ansible/metrics-service
+- **Commits**: 7e78597 (#281)
+- **What happened**: The `renovate.json` Tekton schedule was `"* */12 * * 1-5"` -- the `*` in the minute position meant "run every minute for each matching hour", not "run once at each matching hour". This would fire 60 Renovate PRs per 12-hour window. Fixed to `"0 */12 * * 1-5"`. A PR check was also added to `pr-checks.yml` that greps for `"schedule".*"\* ` in `renovate.json` to prevent future wildcard-minute regressions.
+- **Insight**: Cron's `*` in the minute field means "every minute", not "any minute" -- always specify a minute value (typically `0`) when using step expressions like `*/12` for hours. Adding a CI check for this pattern prevents the mistake from recurring.
+- **Superseded**: the premise was wrong, Renovate ignores the minute field and requires `*` there (see "Renovate requires wildcard minutes in cron schedules" above).
+
+### POC pushed direct to devel without PR — reverted
+- **Repo**: ansible/metrics-service
+- **Commits**: 3fe5d45, eccada7, dfe6110 (#349)
+- **What happened**: Two commits adding a full `service_ingest` Django app (external service telemetry ingest pipeline with models, views, authentication, migrations, tasks, and settings) were pushed directly to the `devel` branch without going through a pull request. The second commit (eccada7) was an immediate fix for runtime issues found during local testing (missing `is_anonymous`/`is_active` on ServiceUser, DAB CommonModel.save() FK constraint via crum thread-local). The entire app was reverted two days later in PR #349 because it bypassed the PR review process. The revert carefully preserved the unrelated jira-pr-link workflow fix from #347 that had been interleaved.
+- **Insight**: Never push feature work directly to the default branch, even for POCs. The two commits illustrate the risk: the first commit had runtime bugs (ServiceUser incompatible with DRF, CommonModel FK constraint), and the fix commit also bypassed review. The revert was surgically clean because the code was isolated in its own `apps/service_ingest/` directory -- good app isolation made the rollback straightforward.
+
+### DAB CommonModel.save() reads crum thread-local user for created_by FK
+- **Repo**: ansible/metrics-service
+- **Commits**: eccada7 (reverted in dfe6110 #349)
+- **What happened**: When a DRF view using a non-Django user (ServiceUser for token auth) created a Task via `Task.objects.create()`, DAB's `CommonModel.save()` read the request user from crum's thread-local storage and tried to set `created_by` as a FK to auth.User. Since ServiceUser is not a Django User model, this caused an FK constraint violation. The workaround was `crum.impersonate(None)` to temporarily clear the thread-local. A second fix switched ExternalEvent from CommonModel to plain `models.Model` to avoid the same issue entirely.
+- **Insight**: Any model inheriting from DAB's CommonModel will attempt to set `created_by`/`modified_by` FKs via crum thread-local user. Service-to-service endpoints using non-Django auth users must either wrap model creation in `crum.impersonate(None)` or avoid CommonModel for models that don't need user audit trails.
+
+### Swagger UI schema URL missing gateway service prefix
+- **Repo**: ansible/metrics-service
+- **Commits**: d483b0a (#359)
+- **What happened**: When metrics-service runs behind the AAP Gateway (which proxies under `/api/metrics/`), the Swagger UI fetched its OpenAPI schema from `/api/v1/docs/schema/` -- a bare internal path unreachable through the gateway. Django's `reverse()` generates paths without the gateway prefix because the prefix is stripped by `ServicePrefixMiddleware` before Django's URL resolver sees it. Fix: a `MetricsSpectacularSwaggerView` subclass overrides `_get_schema_url()` to prepend `request._api_service_prefix` (set by `ServicePrefixMiddleware`). DAB's `api_documentation` app was excluded from URL registration via `ANSIBLE_BASE_APPS_EXCLUDE_VIEW_LIST` so the custom view takes precedence. A related bug: the `feature_flags` redirect pointed to `/api/v1/feature_flags/states/` instead of `/api/metrics/v1/feature_flags/states/`, also unreachable through the gateway.
+- **Insight**: When a service runs behind a reverse proxy that adds a path prefix, any URL generated by Django's `reverse()` will be missing that prefix. Views that emit URLs to the client (Swagger UI schema URL, redirect Location headers) must explicitly reconstruct the full external path using the prefix stored on the request by the prefix-stripping middleware. DAB-provided views can be excluded from URL registration via `ANSIBLE_BASE_APPS_EXCLUDE_VIEW_LIST` without disabling the app itself.
+- **NOTE**: 2b5d59a (#468) generalised this: the hardcoded `/api/metrics/v1/feature_flags/states/` redirect target is gone (canonical `/api/v1/...` mapped through `ServicePrefixRedirectView` with the request prefix or `URL_PREFIX`), and the Swagger override now uses the shared `replace_api_root` helper with a `URL_PREFIX` fallback -- see settings_and_configuration.md "URL_PREFIX replaces only the `/api` root in every generated URL".
+
+### NULL host_id fix for job_host_summary SQL collector reverted -- needed more analysis
+- **Repo**: ansible/metrics-utility
+- **Commits**: 87b61bf (#532), b11fd5a (#533)
+- **What happened**: On SaaS operator deployments, `main_jobhostsummary.host_id` can be NULL. The existing `job_host_summary` collector JOINed to `main_host` using `ON main_host.id = filtered_hosts.host_id`, which silently fails for NULL host_id rows because `NULL = NULL` is false in SQL. This left `ansible_host_variable` as NULL, breaking hostname-based deduplication. PR #532 added `host_name` to the `filtered_hosts` CTE and used a two-branch JOIN: when `host_id IS NOT NULL`, JOIN by ID (unchanged); when `host_id IS NULL`, fall back to JOIN by `host_name`. However, PR #533 reverted this fix two days later. The revert suggests the name-based fallback JOIN may have had unintended consequences (e.g., many-to-many matches when multiple hosts share a name across inventories, or performance regression from the OR-based JOIN condition on large tables).
+- **Insight**: SQL `NULL = NULL` is false, so LEFT JOIN conditions on nullable columns silently produce no match. A name-based fallback JOIN is conceptually correct but risky without careful analysis of uniqueness constraints -- `host_name` is not guaranteed unique across inventories, so the fallback could produce incorrect many-to-many matches. Quick reverts like this (2 days later) indicate the fix needs more analysis of edge cases before re-attempting.
+
+### AWX label dedup via GROUP BY collapsed org-scoped labels -- reverted next day
+- **Repo**: ansible/metrics-service
+- **Commits**: fd7ba37e (#387), d7a776cf (#390), d3ce5e63 (#389)
+- **What happened**: Labels in AWX have `unique_together = (name, organization)`, meaning the same label name can be distinct labels in different organizations. The initial fix (#387) used `SELECT MIN(id) as id, name FROM main_label GROUP BY name` to collapse "duplicates" -- but this was wrong: it treated org-scoped labels as true duplicates and silently dropped all but one. The approach also required a separate `GROUP_BY_CLAUSES` dict to compose SQL in the correct clause order (WHERE must precede GROUP BY). The fix was reverted the next day (#390) and replaced with #389, which joins `main_organization` and disambiguates by appending the org name only to labels whose name occurs more than once (e.g., "production (Org A)", "production (Org B)").
+- **Insight**: When entity names are scoped by a parent (org, team, project), `GROUP BY name` is the wrong dedup strategy -- it destroys legitimate data. The correct approach is disambiguation (show the scope when there is ambiguity), not dedup (collapse to one). The rapid fix-revert-replace cycle (3 PRs in 2 days) shows the value of reverting first and fixing properly rather than patching the broken fix. See [metrics_service.md](metrics_service.md#dashboard-label-disambiguation-by-organization-instead-of-dedup) for the final correct implementation details.
