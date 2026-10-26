@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | da9180f | 2026-10-21 | revert: remove event collection metadata (#611) |
-| metrics-service | 26545f2 | 2026-10-19 | use postgres mirror in GitHub workflows (#476) |
+| metrics-service | 764a9e1 | 2026-10-22 | Analytics - resync payload schemas with collectors (#497) |
 | awx | 918ba2ef36 | 2026-10-12 | AAP-95887 Use SKIP LOCKED to prevent lock convoy on parent JT update (#16719) |
 
 ## About the "Superseded / Semi-Obsolete" sections

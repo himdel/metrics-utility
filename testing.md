@@ -437,6 +437,12 @@
 - **What happened**: CI already checked that the committed schema is up to date and spec-valid, which did not catch `org_streak.organization: null` being rejected by the schema (api_design.md, "allow_null ... allOf"). `tests/unit/dashboard_reports/test_leaderboard_schema.py` generates the schema in-process with `drf_spectacular.generators.SchemaGenerator().get_schema(request=None, public=True)`, takes `components.schemas.OrgStreak`, and validates sample payloads with `openapi_schema_validator.OAS30Validator(..., resolver=RefResolver.from_schema(schema))` -- parametrised so `None` and populated orgs must pass and `{}` / a string id must fail.
 - **Insight**: "The spec is valid" and "the spec accepts our responses" are different checks; a small parametrised validator test over edge-case payloads (nulls especially) catches generator quirks that schema diffing never will.
 
+### Dashboard report fixtures anchored at UTC midnight, with the old failure hours pinned as parametrized cases
+- **Repo**: ansible/metrics-service
+- **Commits**: ecaf7aa (#478)
+- **What happened**: The `job_data` fixtures in `tests/unit/dashboard_reports/test_export_urls.py` and `test_report_view_data.py` (mirrors of each other) offset jobs from `get_now()`. #282 had already moved the recent pair from minute- to hour-scale offsets (3h and 2h ago) to dodge a midnight flake, but that only moved the failure window: between 01:00 and 02:59 UTC one job of a pair still landed on the previous day, so `test_trends_granularity_matches_period` (`last_14_days` -> day granularity) saw three date buckets instead of two. Both fixtures now use `get_now().replace(hour=0, minute=0, second=0, microsecond=0)` as the anchor. `TestExportTrendsCSV` also gained an autouse `fixed_now` fixture that patches both the module's `get_now` and `apps.dashboard_reports.filters.datetime` (a `MagicMock(wraps=datetime)` with `datetime.now` stubbed), defaulting to 2026-06-15 12:00 UTC but reading a `simulated_now` param from `request.node.callspec` when present. The granularity test is parametrized over 01:00, 02:00 and 02:59 UTC, the hours that used to fail, and asserts `get_now() == simulated_now` so the pin can't silently stop working.
+- **Insight**: Relative-to-now offsets only move a day-boundary flake around; anchor the fixture at the start of the day, and pin the clock to the hours that used to fail so the regression is tested on every run rather than only when CI happens to hit that time.
+
 ## Superseded / Semi-Obsolete
 
 ### Tests in tests/unit/ alongside tests/test_*.py
@@ -476,6 +482,7 @@
 - **Commits**: a039ec3 (#282)
 - **What happened**: The `job_data` fixture in `test_export_urls.py` used minute-scale offsets (`timedelta(minutes=5)`, `timedelta(minutes=1)`) for recent jobs. CI runs between 00:01-00:05 UTC would split these jobs across two calendar days, producing 3 date buckets instead of the expected 2. Fix: use hour-scale offsets (`timedelta(hours=3)`, `timedelta(hours=2)`) so both jobs always land on the same calendar day regardless of when CI runs.
 - **Insight**: Test fixtures using time offsets from "now" must account for day boundaries. Minute-scale offsets near midnight create flakes -- use hour-scale offsets to ensure all related data points land on the same calendar day.
+- **Superseded** by ecaf7aa (#478): hour-scale offsets only moved the flake to 01:00-02:59 UTC. The fixtures are now anchored at UTC midnight, and the old failure hours are pinned as parametrized cases. See "Dashboard report fixtures anchored at UTC midnight" in the main section.
 
 ### Management command test swallowed exceptions, hiding NULL description bug
 - **Repo**: ansible/metrics-service
