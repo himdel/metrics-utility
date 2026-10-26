@@ -245,6 +245,7 @@
 ### Requirements.txt-based dependency management
 - **Repo**: ansible/metrics-service
 - The initial Dockerfile used `pip install -r requirements.txt`. This was replaced by UV-based dependency management (commit ee93077), then by UV inside the container (d85322e), and finally back to plain pip from `requirements-build.txt` (6059d8c #45).
+- **Update**: Then in 531b608 (#129) all requirements files were deleted and the Dockerfile installs from `pyproject.toml` directly.
 
 ### docker-entrypoint.sh deleted and recreated
 - **Repo**: ansible/metrics-service
@@ -253,6 +254,7 @@
 ### UV as container runtime dependency
 - **Repo**: ansible/metrics-service
 - UV was added to the Docker container in d85322e (#18) and removed in 6059d8c (#45). UV is now a development-only tool; the container uses plain pip with `requirements-build.txt`.
+- **Update**: `requirements-build.txt` was itself deleted in 531b608 (#129); the container now does `pip install .` from `pyproject.toml`.
 
 ### Single container for all services (web + dispatcher + scheduler)
 - **Repo**: ansible/metrics-service
@@ -273,6 +275,7 @@
 ### Global --no-binary :all: for source-only builds
 - **Repo**: ansible/metrics-service
 - The blanket source-only approach from e09243d (#95) was replaced by targeted `--no-binary` for only cryptography/psycopg packages in 72c8a74 (#104). Building Django, pandas, numpy from source was impractical in hermetic builds.
+- **Update**: The targeted directives went too -- see "Source-only builds in production Dockerfile" below (531b608, #129).
 
 ### Procfile for process management
 - **Repo**: ansible/metrics-service

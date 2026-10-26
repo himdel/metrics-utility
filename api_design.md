@@ -245,6 +245,7 @@
 
 ### DRF Spectacular @extend_schema decorators on API views
 - DRF Spectacular was removed in 5fb6ead (#73). The `@extend_schema` decorators on task views were retained (they're no-ops without drf-spectacular installed) pending migration to `ansible_base.api_documentation`.
+- **Update**: drf-spectacular came back through DAB's `api_documentation` extra, and 6ee2d93 (#196) documented every endpoint with `@extend_schema` -- see the same-titled entry above.
 
 ### SettingSerializer with HyperlinkedModelSerializer and url field
 - Changed to plain `ModelSerializer` in d180ae8 (#74) because the dynamic_settings API uses a singleton pattern without detail endpoints, making the `url` field (which referenced non-existent `api:v1:settings-detail`) unnecessary and broken.

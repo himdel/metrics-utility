@@ -192,6 +192,7 @@
 
 ### Segment send-to-segment changed from fixed cron to jittered one-time task
 - **Commits**: 8d4ae7e (#183)
+- **Note**: The seeded jitter was replaced by truly random jitter in f7e2265 (#201) because a stable per-installation offset leaked identifiable timing -- see "Segment send jitter changed from deterministic (service_id-seeded) to truly random" in metrics_collection.md. The one-time jittered task itself is current.
 - **What happened**: The `send_to_segment_daily` cron entry (3:30 AM daily) was removed from `ANONYMIZATION_GROUP`. Instead, `daily_anonymize_and_prepare` now creates a one-time `send_anonymized_to_segment` Task inside the same atomic transaction as the payload creation, scheduled at `now + jitter`. The jitter (0-239 minutes) is derived from a stable per-installation seed: `int(UUID(service_id())) % 10^9` fed to `random.Random(seed).randint(0, 239)`. This means the same installation always gets the same offset, but different installations spread across the 4-hour window.
 - **Insight**: Fixed cron schedules cause thundering herd problems when many installations share the same time. Using a deterministic seed (installation UUID) ensures the jitter is stable (same time every day for a given installation) while distributing load across the fleet. Creating the send task inside the anonymization transaction guarantees the send is only scheduled when anonymization succeeds.
 
@@ -388,6 +389,7 @@
 
 ### CronTaskScheduler class name
 - Renamed to `UnifiedTaskScheduler` in 7b39f53 (#56). The old class name is kept as an alias (`CronTaskScheduler = UnifiedTaskScheduler`) for backward compatibility.
+- **Update**: The `CronTaskScheduler` alias was itself removed in e137d39 (#92).
 
 ### simple_scheduler.py module
 - Removed in 7b39f53 (#56) when the unified scheduler replaced both the simple scheduler and the cron scheduler.
@@ -455,6 +457,7 @@
 
 ### Fixed 10-minute retry delay with 3 max attempts
 - Replaced in 9fcd1d2 (#220) by exponential backoff (`compute_retry_delay()`) with `SEGMENT_MAX_ATTEMPTS = 7`, extending the retry window from ~30 minutes to ~10.5 hours for Segment tasks. Then in 9c6ed6f (#276) the base delay was changed from 600s (10 min) to 480s (8 min) because 10 minutes is a multiple of the 5-minute task cron spacing, causing retry collisions. Also, `SEGMENT_MAX_ATTEMPTS` was removed from the `daily_anonymize_and_prepare` task group entry (it only applies to the dynamically created `send_to_segment` task).
+- **Update**: The `SEGMENT_MAX_ATTEMPTS` removal from `daily_anonymize_and_prepare` was reversed later -- see "max_attempts restored on daily_anonymize_and_prepare" above.
 
 ### send_to_segment_daily as a fixed cron task
 - The daily cron entry (`30 3 * * *`) was removed in 8d4ae7e (#183). Segment sending is now triggered as a one-time task with jittered timing, created inside the anonymization transaction. This prevents thundering herd across installations.
@@ -467,6 +470,7 @@
 
 ### main_host and main_jobevent collectors
 - `main_host` removed in 1580ff2 (#109) because it's not in the anonymized chain. `main_jobevent` disabled (too slow for production) but kept in registry for testing.
+- **Update**: The events collector (`main_jobevent_service`) is enabled by default again since 8daf1af (#295), bounded by `JOBEVENT_ROW_LIMIT`/`JOBEVENT_JOB_LIMIT`.
 
 ### Thread-based service management with ProcessManager
 - The `ProcessManager` class and thread-based service orchestration were removed in 0c14d9c (#85). The `metrics_service run` command now spawns three OS processes directly with selectors-based I/O multiplexing.
@@ -475,6 +479,7 @@
 - **Repo**: ansible/metrics-service
 - **Commits**: 9c6ed6f (#276)
 - See [bugs_and_pitfalls.md](bugs_and_pitfalls.md#segment_max_attempts-mistakenly-applied-to-local-only-anonymize-task) for the full entry. Summary: `SEGMENT_MAX_ATTEMPTS` (7) was mistakenly applied to `daily_anonymize_and_prepare` (local DB-only task) in #220; reverted to model default (3). Extended retry attempts should only apply to tasks interacting with external services.
+- **Reversed**: `max_attempts` was restored on the task -- see "max_attempts restored on daily_anonymize_and_prepare" above.
 
 ### INDIRECT_NODE_COLLECTION_GROUP: separate task group with own feature flag
 - **Repo**: ansible/metrics-service

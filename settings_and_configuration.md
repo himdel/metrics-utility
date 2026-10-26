@@ -654,6 +654,7 @@
 ### Feature flags simplified to single ANONYMIZED_DATA_COLLECTION toggle
 - **Repo**: ansible/metrics-service
 - The decision in e137d39 (#92) to remove `METRICS_COLLECTION_ENABLED` and make collection always-on was partially reversed in 68a2039 (#191). A new `METRICS_COLLECTION` flag (default: true) was added to gate local collection independently. The system now has three flags: `METRICS_COLLECTION`, `ANONYMIZED_DATA_COLLECTION`, and `DASHBOARD_COLLECTION`.
+- **Update**: More flags have been added since (e.g. `INDIRECT_NODE_COLLECTION`, `SHOW_LEADERBOARD`), so "three flags" no longer holds.
 
 ### FEATURE_ENABLED naming
 - **Repo**: ansible/metrics-service

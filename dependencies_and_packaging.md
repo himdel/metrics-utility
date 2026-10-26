@@ -376,6 +376,7 @@
 ### requirements.txt as primary dependency source
 - **Repo**: ansible/metrics-service
 - After the UV migration (ee93077), `pyproject.toml` + `uv.lock` became the source of truth. The `requirements.txt` file was retained but was no longer the primary mechanism. The sync-requirements system (f848024) now generates pip-format requirements from uv.lock automatically.
+- **Update**: Both `requirements.txt` and the sync-requirements system were deleted in 531b608 (#129) -- see "sync-requirements system" below.
 
 ### metrics-utility pinned to git commit
 - **Repo**: ansible/metrics-service
@@ -392,6 +393,7 @@
 ### drf-spectacular dependency
 - **Repo**: ansible/metrics-service
 - Removed in 5fb6ead (#73). OpenAPI schema generation will be handled by `ansible_base.api_documentation` instead.
+- **Update**: Back as a transitive dependency of `django-ansible-base[api_documentation]` and used directly for `@extend_schema` since 6ee2d93 (#196).
 
 ### django-oauth-toolkit and social-auth-app-django
 - **Repo**: ansible/metrics-service
@@ -408,6 +410,7 @@
 ### psycopg[binary] and psycopg2-binary
 - **Repo**: ansible/metrics-service
 - Changed to `psycopg[c]` and `psycopg2` (source builds) in e09243d (#95) for SBOM compliance. Binary wheels can't be traced by Red Hat's software bill of materials tools.
+- **Update**: Reverted back to `psycopg[binary]`/`psycopg2-binary` in 531b608 (#129), which is current -- see "psycopg[c] and psycopg2 for source builds" below.
 
 ### Dev dependencies duplicated between optional-dependencies and dependency-groups
 - **Repo**: ansible/metrics-service
@@ -416,6 +419,7 @@
 ### Global --no-binary :all: in requirements-build.txt
 - **Repo**: ansible/metrics-service
 - The blanket `--no-binary :all:` from 400b419 (#100) was replaced by targeted `--no-binary` directives for only cryptography/psycopg packages in 72c8a74 (#104).
+- **Update**: The targeted directives went too, when 531b608 (#129) deleted the requirements files and switched to binary wheels.
 
 ### setuptools-scm dynamic versioning
 - **Repo**: ansible/metrics-service

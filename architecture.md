@@ -796,6 +796,7 @@
 ### DRF Spectacular / OpenAPI schema
 - **Repo**: ansible/metrics-service
 - Removed in 5fb6ead (#73). OpenAPI documentation will be provided by `ansible_base.api_documentation` instead.
+- **Update**: It did come back through DAB's `api_documentation` extra (drf-spectacular is in `uv.lock`), with full `@extend_schema` coverage since 6ee2d93 (#196).
 
 ### DAB authentication and oauth2_provider integration
 - **Repo**: ansible/metrics-service
@@ -820,6 +821,7 @@
 ### Tekton/Konflux pipelines in .tekton/
 - **Repo**: ansible/metrics-service
 - The `.tekton/metrics-service-pull-request.yaml` and `.tekton/metrics-service-push.yaml` Tekton pipeline configs (640+ lines each) were deleted in 531b608 (#129) as part of the production Docker overhaul. The hermetic build approach with Cachi2/Hermeto prefetch was replaced by a simpler `pip install .` from `pyproject.toml`.
+- **Update**: `.tekton/` exists again, but only for `run-atf-tests-pull-request.yaml` (c37c4c2, #255, tier-1 tests); the build pipelines did not come back there.
 
 ### Feature flag initialization in AppConfig.ready()
 - **Repo**: ansible/metrics-service
