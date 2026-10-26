@@ -39,7 +39,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 |------|--------|------|---------|
 | metrics-utility | da9180f | 2026-10-21 | revert: remove event collection metadata (#611) |
 | metrics-service | 764a9e1 | 2026-10-22 | Analytics - resync payload schemas with collectors (#497) |
-| awx | 918ba2ef36 | 2026-10-12 | AAP-95887 Use SKIP LOCKED to prevent lock convoy on parent JT update (#16719) |
+| awx | edabe5d6eb | 2026-10-23 | Migrate from deprecated _actor_role_filter to actor_role_ids (#16750) |
 
 ## About the "Superseded / Semi-Obsolete" sections
 
