@@ -830,6 +830,18 @@
 - **What happened**: `DashboardReportViewSet.details()` computed total_runs/total_successful_runs/total_failed_runs from `_build_aggregated_queryset()`, which joins and filters by `template_metadata_id IS NOT NULL`. Jobs without template metadata (orphan rows) appeared in the raw job listing but were excluded from the card counts, causing a persistent mismatch. The fix separates card counts (computed on `filtered_qs` with `Count("id", filter=Q(status=...))`) from cost/time annotations (still use the aggregated queryset that needs TemplateMetadata fields).
 - **Insight**: When an aggregation requires a JOIN or filter that excludes rows, counts derived from the same queryset will be undercounted relative to the unfiltered listing. Always compute simple counts (total, successful, failed) on the broadest applicable queryset, even if other aggregations need narrower filters.
 
+### Standalone CCSPv2 `jobs` / `infrastructure_summary` sheets loaded no input CSV
+- **Repo**: ansible/metrics-utility
+- **Commits**: 1a92ff5 (#622)
+- **What happened**: The `CSV_SHEETS` map in `automation_controller_billing/extract/base.py` decides which tarball CSVs to read, based on the requested optional sheets (see the #86 entry in performance.md). `jobs` was missing from the `job_host_summary` list and `infrastructure_summary` was missing from the `main_indirectmanagednodeaudit` list. The default sheet selections always include another sheet that loads the same CSV, so nobody noticed. But if either sheet was the only one selected via `METRICS_UTILITY_OPTIONAL_CCSP_REPORT_SHEETS`, it was built from an empty frame. The bug turned up while writing the data-lineage docs (#620). The fix adds the two entries, a parametrized `csv_enabled()` test and end-to-end single-sheet workbook tests on real tarballs that check job/host/task totals and infrastructure node counts.
+- **Insight**: Test a sheet-to-input gating table one sheet at a time. Combination tests that use default sheet sets hide missing entries because a sibling sheet loads the CSV anyway.
+
+### Worksheet names over 31 chars produced XLSX files Excel had to repair
+- **Repo**: ansible/metrics-utility
+- **Commits**: 0881b61 (#605), dceb10b (#626)
+- **What happened**: AAP-96731. CCSPv2 `managed_nodes_by_organizations` creates one tab per organization, named after the org. openpyxl does not enforce several OOXML sheet-name rules: max 31 chars (longer names trigger Excel's repair dialog), no leading or trailing apostrophe, and `History` is reserved. It does raise `ValueError` on `\ * ? : / [ ]`, so an org name containing `/` or `:` would crash the report. `Base._safe_sheet_title()`, now called from `add_sheet()` for every report type, does the following: replaces forbidden chars with `_`, fixes boundary apostrophes (re-checked after truncation), renames `History`, truncates to 31 and appends `~N` on a case-insensitive collision with an existing tab. When an org tab title differs from the org name, the full name goes into a bold row-1 header with `data_type = 's'` forced, so names starting with `=` cannot become formulas, and the data section starts at row 2. #626 changed truncation to count UTF-16 code units (an astral-plane character counts as 2) without splitting a character, because the limit is in code units, not Python chars.
+- **Insight**: openpyxl validates only some sheet-name rules, so any user-derived tab name needs explicit sanitize/truncate/dedup. When the tab name loses information, write the full value inside the sheet as forced text.
+
 ## Superseded / Semi-Obsolete
 
 ### Leaderboard org tie-break sorted NULL-named orgs first, contradicting the documented order  [SUPERSEDED by #470]
