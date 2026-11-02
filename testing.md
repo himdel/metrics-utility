@@ -449,6 +449,12 @@
 - **What happened**: After metrics-utility renamed `collection_name` to `collection` in the indirect nodes rollup (m-u PRs #484/#485) to work around Segment silently filtering properties containing the substring "name", a test mock in `test_collect_daily_indirect_nodes.py` still used the old `collection_name` key. PR #350 updated the mock to use `collection` to match the upstream data shape.
 - **Insight**: Cross-repo field renames require updating both the producer (metrics-utility rollup) and the consumer (metrics-service mocks/tests). When a field rename is driven by an external constraint (Segment's "name" filtering), search both repos for the old field name to catch stale references in test fixtures.
 
+### Service registry drift test made one-way so additive utility collectors don't break cross-repo CI
+- **Repo**: ansible/metrics-service
+- **Commits**: aac1813 (#506)
+- **What happened**: AAP-95739. metrics-utility's CI runs the metrics-service test suite with the utility PR checkout installed. `test_registry_covers_metrics_utility_collectors` asserted `set(registry.COLLECTORS) == {every controller/service/others collector exported by metrics-utility, plus dashboard.dashboard_jobs}`. As a result, any utility PR adding a collector (#603's five `*_org` collectors) failed until the paired service PR (#504) merged, and the service PR couldn't merge before the utility release. The test is now `test_registered_collectors_are_available_in_metrics_utility` and asserts `set(registry.COLLECTORS) <= available`. The service may lag behind new utility collectors, but it must never register one the installed utility lacks. The `len(COLLECTORS) == len(_ALL)` duplicate check stays.
+- **Insight**: When two repos test each other, make the contract test one-way, from consumer to provider. Exact equality makes every additive change a merge deadlock between the repos.
+
 ## Superseded / Semi-Obsolete
 
 ### _create_task_safely pattern to suppress Django signals in tests

@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | dceb10b | 2026-10-30 | feat: add ODS report output (AAP-75308) (#626) |
-| metrics-service | 764a9e1 | 2026-10-22 | Analytics - resync payload schemas with collectors (#497) |
+| metrics-service | e6b680c | 2026-10-29 | document excluded hourly rollup collectors (#503) |
 | awx | edabe5d6eb | 2026-10-23 | Migrate from deprecated _actor_role_filter to actor_role_ids (#16750) |
 
 ## About the "Superseded / Semi-Obsolete" sections

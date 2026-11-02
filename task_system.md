@@ -297,6 +297,7 @@
 - **Insight**: An on-demand task with a literal window is the wrong primitive for recurring collection -- document which function gives rolling defaults so scheduled jobs don't re-collect the same fixed hour forever.
 - **Partially superseded**: 8be43b0 (#451) replaced the fixed 90-day default with the Controller `cleanup_jobs` schedule (90 only as fallback), and cf15c4a (#462) made the on-demand task fail when its payload is not stored -- see the entries for both above.
 - **Extended**: 9f6133d (#490) applies the same analytics retention (and the manual `analytics_retention_days` override) to `APIUsageCounter` rows by `usage_date`, and moves the count/delete code into `_delete_old_rows()` (metrics_collection.md, `api_usage_telemetry`).
+- **Extended**: 6ea55f9 (#501): trigger-created on-demand tasks now have `max_attempts=1` (the trigger requeues, the scheduler does not retry), the task result carries the stored payload's `collection_id`, and the trigger reuses tasks per window, so its idempotency only lasts until `cleanup_old_tasks` deletes the task (api_design.md "Analytics collect trigger is idempotent...").
 
 ### Daily rollup must still mark raw-only collection rows as processed
 - **Repo**: ansible/metrics-service
