@@ -51,8 +51,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### SonarCloud integration saga
 - **Files**: ci_cd.md
-- **Evolution**: added initially (ee93077) -> removed from pytest (#17) -> re-added via `workflow_run` pattern (#93) -> hardened with PR validation (#101) -> reorganized scan split (#127/#128/#134) -> exclusions expanded (#193)
-- **PRs**: ~7-8
+- **Evolution**: added initially (ee93077) -> removed from pytest (#17) -> re-added via `workflow_run` pattern (#93) -> hardened with PR validation (#101) -> reorganized scan split (#127/#128/#134) -> exclusions expanded (#193) -> `check_artifacts` job skips the `workflow_run` scan when Dependabot/fork PRs leave no coverage artifacts (#514, ported to m-u as #631) -> Sonar-driven code rewrites to reach a B+ rating and clear cognitive-complexity flags (#524, #537)
+- **PRs**: ~10
 
 ### URL prefix
 - **Files**: settings_and_configuration.md
@@ -130,8 +130,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### DRF Spectacular / OpenAPI
 - **Files**: api_design.md, dependencies_and_packaging.md
-- **Evolution**: added initially -> removed during DAB retrofit (#73, API docs to be handled by `ansible_base.api_documentation`) -> re-added with comprehensive OpenAPI documentation and auto-sync workflow (#196)
-- **PRs**: 3
+- **Evolution**: added initially -> removed during DAB retrofit (#73, API docs to be handled by `ansible_base.api_documentation`) -> re-added with comprehensive OpenAPI documentation and auto-sync workflow (#196) -> CI drift check (#430) -> `make generate-openapi-schema` and README switched to the canonical `tools/generate-openapi.sh`, which the old inline spectacular calls bypassed (#519)
+- **PRs**: 5
 
 ### Segment send scheduling and jitter
 - **Files**: metrics_collection.md
@@ -172,8 +172,8 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Gateway resource sync (one-time backfill -> per-build, snapshot-safe reconciliation)
 - **Files**: architecture.md, task_system.md, metrics_service.md, api_design.md
-- **Evolution**: #320 (87784a9) added one-shot `initial_resource_sync` wrapping DAB `SyncExecutor` (periodic sync dropped since Gateway pushes assignments) -> #365 (44e30ac) tuned retries to the Gateway's 60s `populate_service_id` cycle -> #333 one-shot preservation in `create_system_tasks()` quietly meant the sync never re-ran after upgrades -> #443 (aa10b0d) started serving `/users/me` organization memberships from the synced tables, raising the stakes on sync freshness -> #445 (4e045b7) re-runs the sync per service/DAB source fingerprint, disables DAB's built-in assignment sync, reconciles assignments only from a complete Gateway snapshot, and serializes the task via `TASK_LOCKS` -> #469 (3bd77e2) fixed two more holes in the one-shot preservation: restarts lost `completed_at`, and task cleanup could delete completed one-shots (making them re-run).
-- **PRs**: 6 (#320, #365, #333, #443, #445, #469)
+- **Evolution**: #320 (87784a9) added one-shot `initial_resource_sync` wrapping DAB `SyncExecutor` (periodic sync dropped since Gateway pushes assignments) -> #365 (44e30ac) tuned retries to the Gateway's 60s `populate_service_id` cycle -> #333 one-shot preservation in `create_system_tasks()` quietly meant the sync never re-ran after upgrades -> #443 (aa10b0d) started serving `/users/me` organization memberships from the synced tables, raising the stakes on sync freshness -> #445 (4e045b7) re-runs the sync per service/DAB source fingerprint, disables DAB's built-in assignment sync, reconciles assignments only from a complete Gateway snapshot, and serializes the task via `TASK_LOCKS` -> #469 (3bd77e2) fixed two more holes in the one-shot preservation: restarts lost `completed_at`, and task cleanup could delete completed one-shots (making them re-run) -> #516 (32e6cf9) extended the sync to `RoleDefinition` (shared, pull-only), restoring the registration #73/#75 had removed, fixing a 500 on `role_user_assignments/`, and re-running `initial_resource_sync` once on deploy.
+- **PRs**: 7 (#320, #365, #333, #443, #445, #469, #516)
 - **Lesson**: Generic lifecycle rules (preserve completed one-shots) interact badly with tasks whose job is to track external state across versions; and once an API reads from a synced mirror, sync safety (no destructive diff on partial data) matters as much as sync existence.
 
 ### BYO-BI analytics API (ANSTRAT-1587)
@@ -184,9 +184,15 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 
 ### Analytics payload contract: typed schemas, column withholding, keyed objects, resync
 - **Files**: api_design.md, architecture.md, bugs_and_pitfalls.md, metrics_collection.md
-- **Evolution**: #455 (3fc1cb0) hand-written OpenAPI schemas per collector with a `collector` discriminator, fixing NULL-ridden integer IDs stored as `31.0` and dates as midnight timestamps -> #495 (8983293) `exclude_columns` withholds `launched_by_username` where data leaves the service, guarded off data-keyed objects -> #460 (8e8346c) `payload_shape`/`key_field` in discovery, exclusions applied to keyed objects (e.g. `instance_info` by uuid), guard replaced, test that excluded columns stay out of the schemas -> #497 (764a9e1) schemas resynced by hand with metrics-utility devel (`first_automation` from metrics-utility#617 added, `collection_name`/`collection_version` dropped after the metrics-utility#611 revert) within a day of #455.
-- **PRs**: 4 in metrics-service (#455, #495, #460, #497), all 2026-10-21..22
+- **Evolution**: #455 (3fc1cb0) hand-written OpenAPI schemas per collector with a `collector` discriminator, fixing NULL-ridden integer IDs stored as `31.0` and dates as midnight timestamps -> #495 (8983293) `exclude_columns` withholds `launched_by_username` where data leaves the service, guarded off data-keyed objects -> #460 (8e8346c) `payload_shape`/`key_field` in discovery, exclusions applied to keyed objects (e.g. `instance_info` by uuid), guard replaced, test that excluded columns stay out of the schemas -> #497 (764a9e1) schemas resynced by hand with metrics-utility devel (`first_automation` from metrics-utility#617 added, `collection_name`/`collection_version` dropped after the metrics-utility#611 revert) within a day of #455 -> #517 (60fe8db) every payload and rows/discovery/collect serializer field given a description, enforced by a recursive test (descriptions deduplicated into constants by #524).
+- **PRs**: 5 in metrics-service (#455, #495, #460, #497, #517)
 - **Lesson**: Hand-maintained schemas track metrics-utility devel, not the locked PyPI release metrics-service ships (0.8.20260927, which predates #617), and nothing but a docs note keeps them in sync.
+
+### Controller database alias task argument: added, spread, renamed, removed
+- **Files**: task_system.md
+- **Evolution**: generic `database` task kwarg defaulting to `awx` (#40) -> spread to dashboard collection (#169) -> renamed `awx_database` with backward compatibility (#319) -> reached job-type backfill metadata (#499) -> removed entirely; Controller-backed tasks call `get_db_connection("awx")` and stale kwargs on persisted tasks are logged and ignored (#518).
+- **PRs**: 5 (#40, #169, #319, #499, #518)
+- **Lesson**: A knob nobody used kept getting renamed and copied to new tasks instead of being questioned. Pointing it at any other alias could only send reads or writes to the wrong database. Removing it needed a tolerant shim, because the kwargs live on in persisted task rows.
 
 ## metrics-utility arcs
 

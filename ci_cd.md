@@ -509,6 +509,18 @@
 - **What happened**: Port of the metrics-service pattern (m-s #514, earlier #303/#305 above) for fork and downstream PRs, which do not get `CICD_ORG_SONAR_TOKEN_CICD_BOT`. `pytest.yml` sets job env `HAS_SONAR_TOKEN: ${{ secrets.CICD_ORG_SONAR_TOKEN_CICD_BOT != '' }}` and uploads `coverage-report` and `pr_number` only when it is `'true'`. `sonar_checks.yml` (triggered by `workflow_run`) gains a `check_artifacts` job. It lists the triggering run's non-expired artifacts with `gh api repos/.../actions/runs/$RUN_ID/artifacts` and outputs `artifacts_available` only if both names are present. `sonarcloud` `needs:` it and runs only when that output is true, and the scan step itself is also guarded by `HAS_SONAR_TOKEN`. Landed after #630 because both edit `sonar_checks.yml`.
 - **Insight**: In a split producer/consumer workflow pair, guarding the producer is not enough. The `workflow_run` consumer fires anyway, so it must check that the artifacts actually exist before it tries to download them, or it fails on every tokenless PR.
 
+### SonarCloud `workflow_run` job skipped when coverage artifacts are missing (metrics-service origin)
+- **Repo**: ansible/metrics-service
+- **Commits**: 2c23eaf (#514)
+- **What happened**: Successful pytest runs from Dependabot and fork PRs cannot read the Sonar secret, so they upload neither `coverage-report` nor `pr_number` (#303/#305). The `workflow_run`-triggered `sonar_checks.yml` still started and failed while downloading the coverage artifact. A `check_artifacts` job now carries the old `conclusion == 'success' && event == 'pull_request'` condition, lists the triggering run's non-expired artifacts via `gh api .../actions/runs/$RUN_ID/artifacts`, and outputs `artifacts_available`. `sonarcloud` `needs:` it and runs only when the output is `'true'`. The mechanics are identical to the metrics-utility port, see "SonarCloud skipped when the token or the coverage artifacts are missing (metrics-utility)" above.
+- **Insight**: See the metrics-utility entry: the `workflow_run` consumer must check for the producer's artifacts itself.
+
+### Makefile and README switched to the canonical tools/generate-openapi.sh
+- **Repo**: ansible/metrics-service
+- **Commits**: 42a7f3c (#519)
+- **What happened**: Follow-up to "CI OpenAPI drift check now runs the same tools/generate-openapi.sh as developers" (#430). `make generate-openapi-schema` still ran the two `manage.py spectacular` calls inline and skipped the script's manual patches (path-param type fixes, DAB endpoint tweaks), and the README pointed at the make target. The target now runs `bash tools/generate-openapi.sh`, and the README calls the script directly. CI, Make and the docs now use one generator.
+- **Insight**: When a generator gains post-processing, every entry point (CI, Makefile, README) must call it, otherwise the one that doesn't produces schema diffs that look like drift.
+
 ## Superseded / Semi-Obsolete
 
 ### Automated dependency sync system with GitHub Actions + pre-commit

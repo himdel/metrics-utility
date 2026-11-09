@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | 40b8720 | 2026-11-06 | [devel] remove sqlparse>=0.6.1 (#634) |
-| metrics-service | e6b680c | 2026-10-29 | document excluded hourly rollup collectors (#503) |
+| metrics-service | 442cea0 | 2026-11-05 | reduce dashboard sync complexity (#537) |
 | awx | edabe5d6eb | 2026-10-23 | Migrate from deprecated _actor_role_filter to actor_role_ids (#16750) |
 
 ## About the "Superseded / Semi-Obsolete" sections
