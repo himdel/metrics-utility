@@ -333,6 +333,12 @@
 - **What happened**: The ruff dev dependency was bumped from `>=0.9.2` to `>=0.16.0` in `pyproject.toml`, and the pre-commit hook was updated from `v0.15.4` to `v0.16.0`. The CI workflow was changed from `uvx ruff check` (which fetches the latest ruff from PyPI, potentially differing from local) to `uv run ruff check` (uses the version locked in `uv.lock`). This ensures developers and CI use the same ruff version.
 - **Insight**: Use `uv run ruff` (locked version) instead of `uvx ruff` (latest from PyPI) in CI to prevent version skew between local development and CI. When ruff adds new default rules across versions, `uvx ruff` in CI could fail on code that passes locally with an older locked version.
 
+### sqlparse CVE floor: direct `==0.6.1` pin added, then removed again in favour of the lockfile
+- **Repo**: ansible/metrics-utility
+- **Commits**: 9552b7c (#632), 40b8720 (#634)
+- **What happened**: AAP-98210 / CVE-2026-112307, fixed in sqlparse 0.6.1. #632 added `"sqlparse==0.6.1"` to `[project] dependencies` in `pyproject.toml` and moved `uv.lock` from 0.6.0 to 0.6.1. sqlparse is not imported by metrics-utility; it comes in only through Django. Three days later #634 removed the line again (lock diff: only the direct-dependency and `requires-dist` entries disappear). `uv.lock` still resolves sqlparse 0.6.1 through Django, so the fix stays in place for dev and standalone installs. #634 was held ("DO NOT MERGE") until the matching automation-metrics-service-container PR (#1825) merged, so the product build enforces the floor on its own side before the library drops it. An exact `==` pin in a library's runtime dependencies would also have forced that version on every consumer, which the earlier move to compatible-release ranges (#552) was meant to stop.
+- **Insight**: This confirms "sqlparse bumped to >=0.6.0 for three CVEs" (#564) above. For a transitive-only dependency, put the CVE floor in `uv.lock` (`uv lock --upgrade-package`) and in the product container's constraints, not as a new `==` dependency in the library's `pyproject.toml`.
+
 ## Superseded / Semi-Obsolete
 
 ### Targeted --no-binary replaces blanket source-only builds

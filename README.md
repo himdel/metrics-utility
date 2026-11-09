@@ -37,7 +37,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 <!-- Used by /learnings to know where to pick up. One row per repo. -->
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
-| metrics-utility | dceb10b | 2026-10-30 | feat: add ODS report output (AAP-75308) (#626) |
+| metrics-utility | 40b8720 | 2026-11-06 | [devel] remove sqlparse>=0.6.1 (#634) |
 | metrics-service | e6b680c | 2026-10-29 | document excluded hourly rollup collectors (#503) |
 | awx | edabe5d6eb | 2026-10-23 | Migrate from deprecated _actor_role_filter to actor_role_ids (#16750) |
 

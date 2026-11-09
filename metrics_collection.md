@@ -414,6 +414,12 @@
 - **Insight**: Adding org-grouped sibling collectors keeps existing payload contracts stable and avoids unreliable cross-payload joins. Ownership attribution (`cred_type_counts_org`) and usage attribution (`credentials_service_org`) answer different questions and must not be conflated.
 - **Extended**: metrics-service 3118b40 (#504) registers the five as `controller.*_org` analytics entries (`unified_jobs_org` and `credentials_service_org` hourly, the other three snapshot) with typed payload schemas whose column names match the utility SQL. In `_get_hourly_collectors()`/`_get_snapshot_collectors()` they have `rollup_processor: None, persist_to_hourly: False` and no cron task, and `uv.lock` is bumped to metrics-utility 0.8.20261029. Service-side docs: `docs/analytics.md`, `docs/collectors.md`. aac1813 (#506) first relaxed the service's registry drift test so that this utility PR could merge before the service one (testing.md).
 
+### Segment events carry a `properties.version` schema version, default `v1`
+- **Repo**: ansible/metrics-utility
+- **Commits**: 068906e (#580)
+- **What happened**: AAP-98018. `StorageSegment._build_properties()` now adds `version` next to `artifact_name`, `data`, `upload_timestamp` and `chunk_info` in every event's `properties`. The value comes from `segment_meta.get('version') or 'v1'`, so callers can override it for future schema revisions, and it stays out of the Segment envelope/transport fields (it is only a property). Tests cover the default and an explicit version. The companion metrics-service change passes `version: "v1"` explicitly for Controller metrics events.
+- **Insight**: Tag analytics payloads with a schema version before the first incompatible change, not after, so downstream consumers can branch on it. Default it in the library so older callers still produce a valid tagged event.
+
 ## Superseded / Semi-Obsolete
 
 ### Individual collector files (collect_job_host_summary_hourly.py, etc.)

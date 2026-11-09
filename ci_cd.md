@@ -491,6 +491,24 @@
 - **What happened**: A new `.github/workflows/repo-sync.yaml` mirrors `devel` from `ansible/metrics-utility` to `ansible-automation-platform/metrics-utility` on every push to `devel`, supplementing (not replacing) the existing hourly scheduled sync in `ansible-automation-platform/cicd-ops` so merges mirror downstream immediately. It follows the org-standard caller template from `ansible/ansible-cicd`'s `i-want-it-now.yaml`: it mints a scoped GitHub App token via `actions/create-github-app-token@v2` (using org secret `ANSIBLE_CICD_BOT_ORG_RW_TOKEN_PRIVATE_KEY` and org var `ANSIBLE_CICD_BOT_ORG_RW_TOKEN_APP_ID`, restricted to the target org/repo), derives the bot's git identity from the app slug + user id, then clones the source single-branch with the run's `github.token` and pushes `HEAD:devel` downstream with the app token. Hardened with `permissions: contents: read`, a `concurrency` group per ref with `cancel-in-progress`, a 10-minute timeout, and an `always()` cleanup step.
 - **Insight**: A push-triggered mirror gives immediate downstream propagation on top of a slower scheduled fallback; using a scoped GitHub App token (minted per-run, restricted to the single target repo) rather than a broad PAT is the org-standard way to grant cross-org write, and separating the read (source clone with `github.token`) from the write (downstream push with the app token) keeps each credential minimally scoped. Because the workflow parameterizes the target off `github.event.repository.name`, the same file drops into both metrics-utility and metrics-service unchanged.
 
+### AWX schema workflow pinned to Python 3.14 because AWX's hiredis breaks on 3.15
+- **Repo**: ansible/metrics-utility
+- **Commits**: 53df431 (#629)
+- **What happened**: The scheduled `awx-schema.yml` run failed installing AWX's requirements once `python-version-file: "pyproject.toml"` resolved to Python 3.15.1: `hiredis==3.2.1` still calls `SourceFileLoader.load_module()`, which 3.15 removed. The `setup-python` step now uses `python-version: "3.14"`, with a comment marking it as a temporary override to drop once AWX ships a compatible hiredis.
+- **Insight**: A workflow that installs another project's pinned requirements should not float on our own `requires-python`. Their pins lag new Python releases, so pin the interpreter there and leave a comment saying when to remove the pin. This is the same class of problem as the backports-zstd filter above.
+
+### Upstream-only workflows skipped in the downstream mirror, stable-2.x PR automation kept
+- **Repo**: ansible/metrics-utility
+- **Commits**: f1ca333 (#630)
+- **What happened**: The `ansible-automation-platform/metrics-utility` mirror inherits every workflow file. #630 adds a job-level `if: github.repository_owner == 'ansible'` to AWX schema extraction (both `extract-schema` and `push-branch`), PyPI publishing, Snyk security scans and SonarCloud. `jira-pr-link.yml` and `schema-review.yml` instead use `github.repository_owner == 'ansible' || startsWith(github.event.pull_request.base.ref, 'stable-2.')`. Downstream maintenance PRs against `stable-2.x` still get Jira linking and schema review, and PRs against the mirrored `devel` are skipped. `pr-checks` was left alone: it already fails loudly on downstream `devel` PRs, which is intentional.
+- **Insight**: This extends the per-workflow guards (#561, #586) to every workflow in one pass. Sort workflows by where they are meaningful: canonical-only (publish, schema refresh, secret-backed scans) or also needed on downstream maintenance branches. Gate the second group on the PR base ref, not only on the owner.
+
+### SonarCloud skipped when the token or the coverage artifacts are missing (metrics-utility)
+- **Repo**: ansible/metrics-utility
+- **Commits**: df2eda3 (#631)
+- **What happened**: Port of the metrics-service pattern (m-s #514, earlier #303/#305 above) for fork and downstream PRs, which do not get `CICD_ORG_SONAR_TOKEN_CICD_BOT`. `pytest.yml` sets job env `HAS_SONAR_TOKEN: ${{ secrets.CICD_ORG_SONAR_TOKEN_CICD_BOT != '' }}` and uploads `coverage-report` and `pr_number` only when it is `'true'`. `sonar_checks.yml` (triggered by `workflow_run`) gains a `check_artifacts` job. It lists the triggering run's non-expired artifacts with `gh api repos/.../actions/runs/$RUN_ID/artifacts` and outputs `artifacts_available` only if both names are present. `sonarcloud` `needs:` it and runs only when that output is true, and the scan step itself is also guarded by `HAS_SONAR_TOKEN`. Landed after #630 because both edit `sonar_checks.yml`.
+- **Insight**: In a split producer/consumer workflow pair, guarding the producer is not enough. The `workflow_run` consumer fires anyway, so it must check that the artifacts actually exist before it tries to download them, or it fails on every tokenless PR.
+
 ## Superseded / Semi-Obsolete
 
 ### Automated dependency sync system with GitHub Actions + pre-commit

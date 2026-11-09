@@ -16,6 +16,12 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Files**: architecture.md, metrics_collection.md, bugs_and_pitfalls.md
 - **Evolution**: m-u owns the send side — chunking at 32KB (#249) -> metadata fix (#281) -> trial-serialization sizing (#372) -> `sync_mode=True` (#383). m-s owns the scheduling side — fixed cron -> jittered task (#183) -> `use_bulk` removed (#195) -> truly random jitter (#201). Both repos independently removed `use_bulk` after discovering it didn't work.
 
+### Mirrored workflows guarding themselves downstream (cross-repo)
+- **Files**: ci_cd.md
+- **Evolution**: the `ansible-automation-platform/*` mirrors inherit every workflow file. m-u: step-level `github.repository` guard on the Sonar push step (#561) -> job-level `github.repository_owner == 'ansible'` on repo-sync after it failed downstream on the missing App key (#586; m-s landed the same fix the same day with `github.repository == 'ansible/metrics-service'`) -> the job-level owner guard extended to all upstream-only workflows (AWX schema, PyPI, Snyk, Sonar), with a `stable-2.` base-ref exception for Jira linking and schema review (#630) -> Sonar also skipped when its token or coverage artifacts are missing, porting m-s's `check_artifacts` pattern (#631).
+- **PRs**: 4 in m-u (#561, #586, #630, #631), plus the m-s repo-sync guard
+- **Lesson**: Fixing these one failed downstream run at a time took four PRs. Any workflow that uses an upstream-only secret should carry the owner guard from the start, at job level so the mirror doesn't even get a runner.
+
 ## metrics-service arcs
 
 ### Serializer base classes
@@ -430,6 +436,12 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **Evolution**: `StorageSegment` built on `segment-analytics-python`, with a `use_bulk` flag choosing between a 32KB regular limit and a 500MB bulk limit (#249) -> `use_bulk`/`BULK_MESSAGE_LIMIT` removed and chunk sizing fixed to measure the real wrapped-JSON size (#372) -> per-chunk `message_id = sha256(parent_id + chunk_index)` added via `segment_meta` for idempotent retries (#348) -> `analytics.sync_mode = True` to stop the SDK silently dropping >500KB background batches, with the note that "Segment silently rejects gzip-encoded bodies" (#383) -> the SDK dropped entirely for direct `requests.post` to `/v1/batch` with gzip on by default, self-built track envelopes, a 475,000-byte batch ceiling, pre-send oversized-event rejection, HTTPS-or-loopback host validation behind `allow_insecure_host`, and exceptions propagating to dispatcherd's retry machinery (#574). The `segment-analytics-python` dependency and its transitive packages left `pyproject.toml`/`uv.lock`; the Go mock server learned to decode gzip and record `Content-Encoding`.
 - **PRs**: 5 (#249, #348, #372, #383, #574)
 - **Lesson**: The gzip finding reversed -- what the SDK "silently rejected" the raw HTTP API accepts, so an SDK-observed limitation is a fact about the SDK, not the service. Each step here was an attempt to regain control the SDK was taking away (batch size, thread lifecycle, error visibility); once three workarounds have accumulated, replacing the SDK is cheaper than the fourth.
+
+### CCSPv2 report memory reduction (AAP-96713): cumulative, not revised
+- **Files**: performance.md, bugs_and_pitfalls.md
+- **Evolution**: support-case OOM on a 30-day CCSPv2 report -> drop the no-op `.loc[:,]` copies in `Base.merge()` (#608) -> `_LazyDataFrameDict` so frames are built on first access and deleted after their sheet (#618) -> categorical dtypes for six low-cardinality columns plus dropping the always-empty `host_names_before_dedup` in standard mode (#619) -> vectorized composite keys and column-selective copies in the report builder (#609). Peak RSS at 1M rows went from 2724 MB to 2078 MB (-24%) by #619, with byte-identical output at each step.
+- **PRs**: 4 (#608, #618, #619, #609)
+- **Lesson**: Each step stacked on the last rather than revising it, and each kept snapshot output identical, which is what made it safe to land piecemeal. Review still caught two regressions (lazy `items()` skipping frames in #618, `astype(str)` keeping NaN in #609): memory refactors of pandas code break on empty and null edges, not on the happy path.
 
 ## AWX schema arcs (upstream dependency)
 
