@@ -351,6 +351,12 @@
 - **What happened**: `kubernetes>=33.1.0` was added in #165 for `total_workers_vcpu`. #198 replaced the Kubernetes API calls with Prometheus queries and reads the service account token/CA from disk with plain `open()` (see "total_workers_vcpu" in architecture.md), but left the dependency declared. #636 removes it from `pyproject.toml`; `uv.lock` drops 12 packages: `kubernetes`, `requests-oauthlib`, `oauthlib`, `websocket-client`, `durationpy`, and `aiohttp` with `aiohappyeyeballs`, `aiosignal`, `frozenlist`, `multidict`, `propcache`, `yarl`. The remaining "kubernetes" strings in the code are the `KUBERNETES_SERVICE_PORT` install-type check and the token/CA paths. Downstream images carried an `oauthlib>=4.0.0` build constraint purely because of the `kubernetes -> requests-oauthlib -> oauthlib` chain; that constraint can now go.
 - **Insight**: When a refactor removes the last import of a library, remove the declaration in the same PR. A dead dependency kept a transitive CVE source in every image that installs metrics-utility for 14 months (#198 in September 2025 to #636).
 
+### django-ansible-base bumped to 2026.11.3 to pick up pyasn1 0.6.5 (CVE fixes)
+- **Repo**: ansible/metrics-service
+- **Commits**: 4e49de9 (#542)
+- **What happened**: AAP-100496/100800/100809, for CVE-2026-119194/119195/119196 in `pyasn1`. `pyasn1` reaches metrics-service only through `django-ansible-base`, so instead of pinning it directly the DAB floor moved from `>=2026.10.26` to `>=2026.11.3`, and the `[tool.uv.sources]` git rev moved from `62a1a42` to `bf4d98d`, the DAB commit that bumps `pyasn1` to 0.6.5. It replaces automation-metrics-service-container#1863; backports to m-service 2.6 and 2.7 are to follow.
+- **Insight**: This is the approach the earlier "pyasn1 pin added and fully reverted in same day" cycle and the sqlparse `==0.6.1` revert (m-u #634) arrived at: fix a transitive CVE where it enters (the upstream package or the lockfile), not with a new direct pin. It only works when upstream has already shipped the fix, so the DAB rev must point at that exact commit.
+
 ## Superseded / Semi-Obsolete
 
 ### Targeted --no-binary replaces blanket source-only builds

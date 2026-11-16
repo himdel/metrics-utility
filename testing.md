@@ -455,6 +455,12 @@
 - **What happened**: AAP-95739. metrics-utility's CI runs the metrics-service test suite with the utility PR checkout installed. `test_registry_covers_metrics_utility_collectors` asserted `set(registry.COLLECTORS) == {every controller/service/others collector exported by metrics-utility, plus dashboard.dashboard_jobs}`. As a result, any utility PR adding a collector (#603's five `*_org` collectors) failed until the paired service PR (#504) merged, and the service PR couldn't merge before the utility release. The test is now `test_registered_collectors_are_available_in_metrics_utility` and asserts `set(registry.COLLECTORS) <= available`. The service may lag behind new utility collectors, but it must never register one the installed utility lacks. The `len(COLLECTORS) == len(_ALL)` duplicate check stays.
 - **Insight**: When two repos test each other, make the contract test one-way, from consumer to provider. Exact equality makes every additive change a merge deadlock between the repos.
 
+### Duplicated test helpers consolidated into `tests/test_utils.py`
+- **Repo**: ansible/metrics-service
+- **Commits**: 786c3a9 (#540)
+- **What happened**: `get_cmd()` (builds a `metrics_service` management `Command` with a `StringIO` stdout, a passthrough `MagicMock` style and an `OutputFormatter`) was copied into 5 test files; `_times()` into 2; `_create_task_safely()` into several test classes as a method. All three now live in `tests/test_utils.py`. On the app side, `_org_name_backfill_batch_size()` and `_job_type_backfill_batch_size()` in `apps/dashboard_reports/tasks.py`, identical except for the default, became one `_backfill_batch_size(default_batch_size, kwargs)`; its docstring still says "for the organization-name backfill". `generate_daily_summary_filename()` and `generate_anonymized_payload_filename()` in `tools/tasks/dump_daily_anonymized.py` were inlined.
+- **Insight**: `_create_task_safely` no longer suppresses anything (signals were removed in #57, see Superseded below); it is now just `Task(**kwargs).save()`. Moving it to a shared helper keeps the name alive, so new tests may assume it does more than it does.
+
 ## Superseded / Semi-Obsolete
 
 ### _create_task_safely pattern to suppress Django signals in tests

@@ -38,7 +38,7 @@ See [multi_commit_arcs.md](multi_commit_arcs.md) for the full list of multi-comm
 | Repo | Commit | Date | Subject |
 |------|--------|------|---------|
 | metrics-utility | 8244e44 | 2026-11-16 | (AAP-102065) Add cursor pagination to unified_jobs_dashboard (#640) |
-| metrics-service | 442cea0 | 2026-11-05 | reduce dashboard sync complexity (#537) |
+| metrics-service | 4e49de9 | 2026-11-12 | update django-ansible-base in m-service (#542) |
 | awx | edabe5d6eb | 2026-10-23 | Migrate from deprecated _actor_role_filter to actor_role_ids (#16750) |
 
 ## About the "Superseded / Semi-Obsolete" sections
