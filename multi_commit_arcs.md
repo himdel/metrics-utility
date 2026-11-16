@@ -449,6 +449,12 @@ Sequences where an approach was tried, revised, and sometimes revised again acro
 - **PRs**: 4 (#608, #618, #619, #609)
 - **Lesson**: Each step stacked on the last rather than revising it, and each kept snapshot output identical, which is what made it safe to land piecemeal. Review still caught two regressions (lazy `items()` skipping frames in #618, `astype(str)` keeping NaN in #609): memory refactors of pandas code break on empty and null edges, not on the happy path.
 
+### Dashboard job definition: two collectors feeding `JobData` -> converge on `unified_jobs_dashboard`
+- **Files**: metrics_collection.md, bugs_and_pitfalls.md
+- **Evolution**: #392 added `unified_jobs_dashboard` (hourly sync) and batched `after_id`/`batch_size` reads on `dashboard_jobs` (initial backfill), two routes into the same `JobData` table with different SQL -> the routes drifted: backfilled jobs had NULL `organization_name`, fixed by adding the join to `dashboard_jobs` (m-u #602) plus a data backfill (m-s #470) -> AAP-101700 removes the second route: `unified_jobs_dashboard` gets the same `after_id`/`batch_size` pagination (#640) so the backfill and update task can read it too, which also brings in sync and workflow jobs that `dashboard_jobs` never returned. The m-s switch is still to land.
+- **PRs**: 3 m-u (#392, #602, #640) + 1 m-s (#470)
+- **Lesson**: Sharing a SQL fragment between two paths of one collector (`_JOBS_BASE_SQL`) did not stop drift between two collectors; the durable fix was one collector for both routes.
+
 ## AWX schema arcs (upstream dependency)
 
 ### main_host.last_job / last_job_host_summary FK columns: deprecate across releases, then drop

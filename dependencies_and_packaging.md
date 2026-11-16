@@ -345,6 +345,12 @@
 - **What happened**: `djangorestframework>=3.15` was raised to `>=3.18.2` (lock 3.18.3) for CVE-2026-114136/114137/114138. The DAB floor moved from `2026.1.26` to `2026.10.26`, and the `[tool.uv.sources]` git rev was bumped from the 2026.6.2 commit (needed by #445) to `62a1a42` (lock reports `2026.10.23.0.dev3+g62a1a424d`). This pulls in `nh3` and `regex`. There were no code changes, but the regenerated OpenAPI spec grew about 2k lines from DAB alone. It adds `/api/v1/service-index/resources/bulk-update/` and `role-{user,team}-assignments/bulk-{assign,unassign}/`, and an `assignable_scope` filter on role definitions. `role_definitions_*_assignments` and `role_*_access` nested routes changed from `_retrieve` to paginated `_list` operations with `order`/`order_by`/`page`/`search`/`role_level`/`type` params, so `operationId`s changed (e.g. `role_team_access_list_2`).
 - **Insight**: A DAB bump changes the service's published API even when no service code changes. Review the regenerated spec diff for new endpoints and renamed `operationId`s before the downstream sync, since client generators key on them.
 
+### Unused `kubernetes` dependency dropped, taking `oauthlib` and the `aiohttp` stack with it
+- **Repo**: ansible/metrics-utility
+- **Commits**: eb68892 (#636)
+- **What happened**: `kubernetes>=33.1.0` was added in #165 for `total_workers_vcpu`. #198 replaced the Kubernetes API calls with Prometheus queries and reads the service account token/CA from disk with plain `open()` (see "total_workers_vcpu" in architecture.md), but left the dependency declared. #636 removes it from `pyproject.toml`; `uv.lock` drops 12 packages: `kubernetes`, `requests-oauthlib`, `oauthlib`, `websocket-client`, `durationpy`, and `aiohttp` with `aiohappyeyeballs`, `aiosignal`, `frozenlist`, `multidict`, `propcache`, `yarl`. The remaining "kubernetes" strings in the code are the `KUBERNETES_SERVICE_PORT` install-type check and the token/CA paths. Downstream images carried an `oauthlib>=4.0.0` build constraint purely because of the `kubernetes -> requests-oauthlib -> oauthlib` chain; that constraint can now go.
+- **Insight**: When a refactor removes the last import of a library, remove the declaration in the same PR. A dead dependency kept a transitive CVE source in every image that installs metrics-utility for 14 months (#198 in September 2025 to #636).
+
 ## Superseded / Semi-Obsolete
 
 ### Targeted --no-binary replaces blanket source-only builds
